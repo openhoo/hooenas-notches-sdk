@@ -1,0 +1,16 @@
+.DS_Store
+.build/
+.swiftpm/
+Package.resolved
+node_modules/
+dist/
+target/
+coverage/
+.cache/
+output/
+*.log
+*.xcuserstate
+xcuserdata/
+examples/tauri/src-tauri/gen/
+examples/tauri/src-tauri/binaries/*
+!examples/tauri/src-tauri/binaries/.gitkeep

@@ -1,0 +1,197 @@
+// Hooenas Notches. See LICENSE and THIRD_PARTY_NOTICES.md for source attribution and terms.
+import SwiftUI
+
+/// A top-anchored, animated notch with interchangeable skins and arbitrary SwiftUI content.
+/// Compact content is a button. Expanded content can contain its own interactive controls.
+@MainActor
+public struct HooenasNotch<Compact: View, Expanded: View>: View {
+    private let style: NotchStyle
+    @Binding private var isExpanded: Bool
+    private let configuration: NotchConfiguration
+    private let motion: NotchMotion
+    private let hoverOpens: Bool
+    private let compact: Compact
+    private let expanded: Expanded
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.notchScreenConfiguration) private var screenConfiguration
+    @State private var isHovered = false
+    @State private var hoverExpanded = false
+    @State private var hoverTask: Task<Void, Never>?
+
+    public init(
+        style: NotchStyle = .contour,
+        isExpanded: Binding<Bool>,
+        configuration: NotchConfiguration? = nil,
+        motion: NotchMotion = .spring,
+        hoverOpens: Bool = true,
+        @ViewBuilder compact: () -> Compact,
+        @ViewBuilder expanded: () -> Expanded
+    ) {
+        self.style = style
+        self._isExpanded = isExpanded
+        self.configuration = configuration ?? NotchConfiguration()
+        self.motion = motion
+        self.hoverOpens = hoverOpens
+        self.compact = compact()
+        self.expanded = expanded()
+    }
+
+    private var geometry: NotchConfiguration { screenConfiguration ?? configuration }
+    private var size: CGSize { geometry.size(expanded: isExpanded) }
+    private var silhouette: NotchSilhouette {
+        NotchSilhouette(
+            style: style,
+            top: isExpanded ? geometry.expandedTopRadius : geometry.collapsedTopRadius,
+            bottom: isExpanded ? geometry.expandedBottomRadius : geometry.collapsedBottomRadius
+        )
+    }
+
+    public var body: some View {
+        ZStack(alignment: .top) {
+            surface
+            if isExpanded {
+                expanded
+                    .padding(EdgeInsets(
+                        top: geometry.contentInsets.top,
+                        leading: geometry.contentInsets.leading,
+                        bottom: geometry.contentInsets.bottom,
+                        trailing: geometry.contentInsets.trailing
+                    ))
+                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                    .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.96, anchor: .top)))
+                    .overlay(alignment: .topTrailing) {
+                        Button(action: collapse) {
+                            Image(systemName: "chevron.up")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.55))
+                                .frame(width: 28, height: 28)
+                                .background(.white.opacity(0.06), in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Collapse notch")
+                        .accessibilityLabel("Collapse notch")
+                        .padding(.top, 12)
+                        .padding(.trailing, 14)
+                    }
+            } else {
+                Button {
+                    hoverTask?.cancel()
+                    hoverExpanded = false
+                    isExpanded = true
+                } label: {
+                    compact
+                        .padding(.horizontal, 16)
+                        .frame(width: size.width, height: size.height)
+                        .contentShape(silhouette)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Expand notch")
+                .accessibilityHint("Opens the notch controls")
+                .transition(.opacity)
+            }
+        }
+        .frame(width: size.width, height: size.height, alignment: .top)
+        .clipShape(silhouette)
+        .contentShape(silhouette)
+        .shadow(color: .black.opacity(style == .glass ? 0.24 : 0.3), radius: isExpanded ? 22 : 8, y: 8)
+        .scaleEffect(
+            x: !isExpanded && isHovered && !reduceMotion ? 1.03 : 1,
+            y: !isExpanded && isHovered && !reduceMotion ? 1.04 : 1,
+            anchor: .top
+        )
+        .foregroundStyle(.white)
+        .colorScheme(.dark)
+        .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: isExpanded)
+        .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: style)
+        .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: configuration)
+        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.8), value: isHovered)
+        .onHover(perform: hover)
+        .onExitCommand(perform: collapse)
+        .onDisappear { hoverTask?.cancel() }
+        .accessibilityElement(children: .contain)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+    }
+
+    @ViewBuilder private var surface: some View {
+        if style == .glass {
+            silhouette.fill(.ultraThinMaterial)
+                .overlay(silhouette.fill(Color(red: 0.09, green: 0.11, blue: 0.16).opacity(0.63)))
+                .overlay(silhouette.strokeBorderCompatibility(.white.opacity(0.16), lineWidth: 1))
+        } else if style == .contour {
+            silhouette.fill(LinearGradient(
+                colors: [Color(red: 0.012, green: 0.014, blue: 0.022), Color(red: 0.040, green: 0.045, blue: 0.075)],
+                startPoint: .top, endPoint: .bottom
+            ))
+            .overlay(silhouette.strokeBorderCompatibility(
+                Color(red: 0.48, green: 0.54, blue: 0.86).opacity(0.16), lineWidth: 1
+            ))
+        } else {
+            silhouette.fill(Color(red: 0.055, green: 0.06, blue: 0.075))
+                .overlay(silhouette.strokeBorderCompatibility(.white.opacity(0.12), lineWidth: 1))
+        }
+    }
+
+    private func collapse() {
+        hoverTask?.cancel()
+        hoverExpanded = false
+        isExpanded = false
+    }
+
+    private func hover(_ inside: Bool) {
+        isHovered = inside
+        hoverTask?.cancel()
+        guard hoverOpens else { return }
+        if inside && !isExpanded {
+            hoverTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled, isHovered else { return }
+                hoverExpanded = true
+                isExpanded = true
+            }
+        } else if !inside && hoverExpanded {
+            hoverTask = Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled, !isHovered else { return }
+                hoverExpanded = false
+                isExpanded = false
+            }
+        }
+    }
+}
+
+/// Shared shape dispatch ensures inline rendering and overlay hit regions agree.
+struct NotchSilhouette: Shape {
+    var style: NotchStyle
+    var top: CGFloat
+    var bottom: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(top, bottom) }
+        set { top = newValue.first; bottom = newValue.second }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        switch style {
+        case .contour, .glass:
+            ContourNotchShape(top: top, bottom: bottom).path(in: rect)
+        case .capsule:
+            RoundedRectangle(cornerRadius: min(rect.height / 2, max(bottom, 18)), style: .continuous).path(in: rect)
+        }
+    }
+
+    func strokeBorderCompatibility(_ color: Color, lineWidth: CGFloat) -> some View {
+        stroke(color, lineWidth: lineWidth)
+    }
+}
+
+private struct NotchScreenConfigurationKey: EnvironmentKey {
+    static let defaultValue: NotchConfiguration? = nil
+}
+
+extension EnvironmentValues {
+    var notchScreenConfiguration: NotchConfiguration? {
+        get { self[NotchScreenConfigurationKey.self] }
+        set { self[NotchScreenConfigurationKey.self] = newValue }
+    }
+}

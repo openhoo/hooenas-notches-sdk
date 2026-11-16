@@ -1,0 +1,21 @@
+import { execFileSync } from "node:child_process";
+import { copyFileSync, chmodSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+if (process.platform !== "darwin") throw new Error("The native Hooenas Notches host currently supports macOS 14+ only.");
+const example = fileURLToPath(new URL("..", import.meta.url));
+const root = path.resolve(example, "../..");
+const rustInfo = execFileSync("rustc", ["-vV"], { encoding: "utf8" });
+const target = process.env.CARGO_BUILD_TARGET ?? rustInfo.match(/^host: (.+)$/m)?.[1];
+if (!target || !target.endsWith("-apple-darwin")) throw new Error(`Expected a macOS Rust target, received ${target}`);
+const swiftArch = target.startsWith("aarch64-") ? "arm64" : target.startsWith("x86_64-") ? "x86_64" : undefined;
+if (!swiftArch) throw new Error(`Unsupported macOS target: ${target}`);
+const swiftArgs = ["build", "-c", "release", "--arch", swiftArch];
+execFileSync("swift", [...swiftArgs, "--product", "hooenas-notches-host"], { cwd: root, stdio: "inherit" });
+const binDirectory = execFileSync("swift", [...swiftArgs, "--show-bin-path"], { cwd: root, encoding: "utf8" }).trim();
+const destination = path.join(example, "src-tauri", "binaries", `hooenas-notches-host-${target}`);
+mkdirSync(path.dirname(destination), { recursive: true });
+copyFileSync(path.join(binDirectory, "hooenas-notches-host"), destination);
+chmodSync(destination, 0o755);
+console.log(`Prepared native notch sidecar: ${destination}`);

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hooenas Notches Tauri",
+  "version": "0.1.0",
+  "identifier": "dev.openhoo.hooenas-notches.tauri-example",
+  "build": {
+    "beforeDevCommand": "npm run prepare:sidecar && npm run dev",
+    "beforeBuildCommand": "npm run prepare:sidecar && npm run build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "Hooenas Notches · Tauri", "width": 780, "height": 760 }],
+    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost" }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["icons/icon.icns", "icons/icon.png"],
+    "externalBin": ["binaries/hooenas-notches-host"],
+    "macOS": { "minimumSystemVersion": "14.0" }
+  }
+}

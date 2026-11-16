@@ -1,0 +1,52 @@
+{
+  "name": "@hooenas-notches/client",
+  "version": "0.1.0",
+  "description": "Typed JSON-lines client for the native Hooenas Notches macOS host",
+  "type": "module",
+  "license": "FSL-1.1-MIT",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tauri": {
+      "types": "./dist/tauri.d.ts",
+      "import": "./dist/tauri.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:native": "npm run build && node --test integration/native.test.mjs"
+  },
+  "peerDependencies": {
+    "@tauri-apps/plugin-shell": "^2.6.0"
+  },
+  "peerDependenciesMeta": {
+    "@tauri-apps/plugin-shell": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@tauri-apps/plugin-shell": "^2.6.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openhoo/hooenas-notches-sdk.git",
+    "directory": "packages/client"
+  },
+  "homepage": "https://github.com/openhoo/hooenas-notches-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/openhoo/hooenas-notches-sdk/issues"
+  }
+}

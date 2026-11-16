@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hooenas Notches · Tauri</title>
+  </head>
+  <body>
+    <main>
+      <span class="eyebrow">HOOENAS NOTCHES / TAURI EXAMPLE</span>
+      <h1>A web app.<br />A native notch.</h1>
+      <p>The controls below talk to a Swift sidecar. The animated notch appears at the top of your Mac display.</p>
+      <section class="controls" aria-label="Notch controls">
+        <label>Style <select id="style"><option value="contour">Contour</option><option value="capsule">Capsule</option><option value="glass">Glass</option></select></label>
+        <label>Motion <select id="motion"><option value="spring">Spring</option><option value="gentle">Gentle</option><option value="snappy">Snappy</option></select></label>
+        <div class="buttons"><button id="show">Show notch</button><button id="expand">Expand</button><button id="progress">Run progress</button><button id="hide">Hide</button></div>
+      </section>
+      <p id="status" role="status" aria-live="polite">Connecting to the native host…</p>
+      <pre id="snapshot" aria-label="Native state"></pre>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

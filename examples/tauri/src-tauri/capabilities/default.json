@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-notch",
+  "description": "Allow this window to control only the bundled Hooenas Notches host",
+  "windows": ["main"],
+  "platforms": ["macOS"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [{ "name": "binaries/hooenas-notches-host", "sidecar": true, "args": ["--stdio"] }]
+    },
+    "shell:allow-stdin-write",
+    "shell:allow-kill"
+  ]
+}
