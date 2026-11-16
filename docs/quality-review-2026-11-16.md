@@ -12,7 +12,7 @@ run has its own status.
 
 | Check                                                           | Recorded result                            |
 | --------------------------------------------------------------- | ------------------------------------------ |
-| Swift protocol and native suites                                | 39 total: 38 passed, 1 skipped, 0 failures |
+| Swift protocol and native suites                                | 40 total: 39 passed, 1 skipped, 0 failures |
 | TypeScript client and Tauri adapter                             | 25 passed, 0 failures                      |
 | Integration against the actual Swift host                       | 4 passed, 0 failures                       |
 | Swift debug/tests and release builds with warnings as errors    | Passed                                     |
@@ -111,20 +111,27 @@ for primary sources and the exact limitation.
 ## CI configuration review
 
 The workflow runs the same quality entry point on `macos-26` and selects
-`/Applications/Xcode_26.5.app/Contents/Developer`. The official
-`actions/runner-images` macOS 26 Arm64 inventory, image **20261102.0473.1**,
-was checked on November 16, 2026 and lists **Xcode 26.5 (17F42)** at that path.
-That hosted Xcode build is different from the local beta identified above.
-Official inventory:
-`https://raw.githubusercontent.com/actions/runner-images/main/images/macos/macos-26-arm64-Readme.md`.
+`/Applications/Xcode_26.5.app/Contents/Developer`. The actual hosted diagnostic
+used **macOS 26.7.2 (25G332)**, Arm64 image **20261112.0504.1**, and
+**Xcode 26.5 (17F42)**. That hosted Xcode build differs from the local beta.
+The matching runner inventory is
+`https://github.com/actions/runner-images/blob/macos-26-arm64/20261112.0504/images/macos/macos-26-arm64-Readme.md`.
 
-The first hosted run exposed two keyboard-fixture failures. Directly calling
-`NSHostingView.keyDown` did not establish the normal AppKit keyboard dispatch
-path. The fixture now makes the test panel key, verifies its first responder,
-and sends Escape through `NSApplication.sendEvent`. Dispatch without a key
-panel reproduced the pair of failures locally. This correction changes the
-test setup, not product behavior; the actual desktop Escape checks above also
-passed. The hosted gate must be checked again for this correction.
+Initial hosted runs exposed two keyboard-fixture failures. A key panel and
+AppKit first responder alone did not establish SwiftUI focus. In the isolated
+hosted diagnostic run **43832969432**, an unfocused plain SwiftUI host also
+ignored Escape; the focused host baseline and both focused notch cases passed.
+Calling `finishLaunching` did not change the unfocused result. This confirms
+the documented focus precondition of `onExitCommand`.
+
+The final fixture makes the panel key, waits for a real SwiftUI text field to
+own the field editor, and sends Escape through `NSApplication.sendEvent`. It
+retains a plain-host comparison and detects a deliberately restored collapsed
+interception regression. Production sources are unchanged. Diagnostic matrix
+code and logging are excluded from the final fixture. Evidence is retained
+locally in `output/review-keyboard-ci-diagnostics.log` and
+`output/review-keyboard-focused-full.log`. The complete hosted gate must be
+checked again for the final fixture.
 
 ## Remaining verification
 

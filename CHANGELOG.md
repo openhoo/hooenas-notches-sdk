@@ -22,14 +22,14 @@
 - Reproducible formatting, warnings-as-errors builds, real-host integration,
   Tauri bundling, Clippy, documentation/media checks and macOS GitHub Actions.
 - Correct native keyboard test dispatch by verifying the key panel and first
-  responder before routing Escape through AppKit.
+  responder and real SwiftUI focus before routing Escape through AppKit.
 - Check both macOS dependency graphs and document the open `glib 0.18.5`
   advisory in the unsupported Linux dependency graph.
 - Updated component documentation, regenerated showcase media and validated
   dimensions and timing. Visually inspected the representative expanded GIF
   frames and exercised the actual SwiftUI showcase through every surface,
   completion, panel interaction and shutdown.
-- Verified 38 Swift tests with one explicit AX baseline skip, 25 client/adapter
+- Verified 39 Swift tests with one explicit AX baseline skip, 25 client/adapter
   tests and four integrations against the real Swift host. Built a universal
   Tauri app and checked its surfaces, expansion, progress, motion, hide and
   process cleanup on the actual desktop. See the
