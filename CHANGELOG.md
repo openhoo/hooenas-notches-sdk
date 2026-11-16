@@ -21,6 +21,10 @@
 - Focused native, protocol, client and Tauri regressions for the failures above.
 - Reproducible formatting, warnings-as-errors builds, real-host integration,
   Tauri bundling, Clippy, documentation/media checks and macOS GitHub Actions.
+- Correct native keyboard test dispatch by verifying the key panel and first
+  responder before routing Escape through AppKit.
+- Check both macOS dependency graphs and document the open `glib 0.18.5`
+  advisory in the unsupported Linux dependency graph.
 - Updated component documentation, regenerated showcase media and validated
   dimensions and timing. Visually inspected the representative expanded GIF
   frames and exercised the actual SwiftUI showcase through every surface,

@@ -85,6 +85,42 @@ surface. The example's progress button and native Cancel action provide an
 interactive check of updates and callbacks. Signing and notarization belong to
 the application that distributes the helper.
 
+## Dependency advisory
+
+This example and its native renderer support **macOS 14 or newer only**. As
+checked on November 16, 2026, the cross-platform `Cargo.lock` contains
+`glib 0.18.5`, affected by
+[GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g) /
+[RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429.html)
+(an unsound `VariantStrIter` iterator implementation).
+
+From `examples/tauri/src-tauri`, both commands below complete successfully with
+an empty dependency tree (`warning: nothing to print`): `glib 0.18.5` is absent
+from both macOS target build graphs.
+
+```sh
+cargo tree --locked --target aarch64-apple-darwin --invert glib@0.18.5
+cargo tree --locked --target x86_64-apple-darwin --invert glib@0.18.5
+```
+
+The equivalent check for `x86_64-unknown-linux-gnu` includes `glib 0.18.5`
+transitively through GTK/WebKitGTK in the Tauri/wry stack. This establishes
+Linux dependency reachability; application exploitability has not been
+established. Linux builds are unsupported by this example.
+
+The checked stable versions (`tauri 2.12.5`, `tauri-runtime-wry 2.12.3`, and
+`wry 0.57.2`) still require GTK/glib 0.18 on Linux. There is no compatible
+published upstream patch in that dependency family: RustSec lists the fix in
+`glib >=0.20.0`, which does not satisfy the existing 0.18 constraints. See the
+[Tauri dependencies](https://crates.io/api/v1/crates/tauri/2.12.5/dependencies),
+[runtime dependencies](https://crates.io/api/v1/crates/tauri-runtime-wry/2.12.3/dependencies),
+[wry dependencies](https://crates.io/api/v1/crates/wry/0.57.2/dependencies),
+[GTK dependencies](https://crates.io/api/v1/crates/gtk/0.18.2/dependencies), and
+[upstream fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343).
+The advisory remains open pending an official compatible backport or a
+coordinated upstream upgrade. These checks are limited to the named target
+graphs; a globally clean Rust audit is not claimed.
+
 ## Documentation checked
 
 The integration and target selection were checked against Tauri v2 documentation

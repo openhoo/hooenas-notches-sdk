@@ -30,7 +30,14 @@ final class NotchKeyboardTests: XCTestCase {
         let layout = try XCTUnwrap(controller.layoutSnapshot)
         let window = try XCTUnwrap(NSApplication.shared.windows.first { $0.frame == layout.panelFrame })
         let hosting = try XCTUnwrap(window.contentView)
+        // Showing the nonactivating overlay does not make it key. Real keyboard
+        // dispatch needs a key window even when makeFirstResponder succeeds.
+        window.makeKey()
+        XCTAssertTrue(window.isKeyWindow)
+        XCTAssertTrue(NSApplication.shared.keyWindow === window)
         XCTAssertTrue(window.makeFirstResponder(hosting))
+        XCTAssertTrue(window.firstResponder === hosting)
+        hosting.layoutSubtreeIfNeeded()
         let event = try XCTUnwrap(
             NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: [],
@@ -38,7 +45,7 @@ final class NotchKeyboardTests: XCTestCase {
                 context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
                 isARepeat: false, keyCode: 53
             ))
-        hosting.keyDown(with: event)
+        NSApplication.shared.sendEvent(event)
         try await Task.sleep(for: .milliseconds(50))
     }
 }

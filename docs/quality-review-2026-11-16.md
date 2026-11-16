@@ -86,6 +86,28 @@ These paths describe ignored local artifacts; they are not downloadable
 repository evidence. The desktop smoke was observed during this review rather
 than inferred from unit tests.
 
+The interaction observations and executable hashes are recorded in
+`output/review-desktop-smoke.json`. `output/review-pages-check.json` records HTTP
+200 responses and byte-for-byte matches for the published landing, privacy and
+support pages and all three GIFs.
+
+## Dependency and secret review
+
+Full `npm audit` checks for the development root, TypeScript client and Tauri
+example reported zero vulnerabilities, including development dependencies.
+Gitleaks found no secrets in the staged review changes. Those checks do not
+establish that every dependency or repository revision is free of vulnerabilities.
+
+The Rust lockfile retains an open moderate advisory for `glib 0.18.5`,
+`GHSA-wrw7-89jp-8q8g` / `RUSTSEC-2024-0429`. The crate is absent from both locked
+macOS target dependency trees, `aarch64-apple-darwin` and
+`x86_64-apple-darwin`. It is present in the Linux GTK/WebKit dependency graph.
+This example supports macOS only; no Linux build or security qualification is
+claimed. A compatible upstream fix is not available in the checked stable Tauri
+dependency chain. The advisory remains open and was not dismissed. See the
+[Tauri dependency assessment](../examples/tauri/README.md#dependency-advisory)
+for primary sources and the exact limitation.
+
 ## CI configuration review
 
 The workflow runs the same quality entry point on `macos-26` and selects
@@ -95,6 +117,14 @@ was checked on November 16, 2026 and lists **Xcode 26.5 (17F42)** at that path.
 That hosted Xcode build is different from the local beta identified above.
 Official inventory:
 `https://raw.githubusercontent.com/actions/runner-images/main/images/macos/macos-26-arm64-Readme.md`.
+
+The first hosted run exposed two keyboard-fixture failures. Directly calling
+`NSHostingView.keyDown` did not establish the normal AppKit keyboard dispatch
+path. The fixture now makes the test panel key, verifies its first responder,
+and sends Escape through `NSApplication.sendEvent`. Dispatch without a key
+panel reproduced the pair of failures locally. This correction changes the
+test setup, not product behavior; the actual desktop Escape checks above also
+passed. The hosted gate must be checked again for this correction.
 
 ## Remaining verification
 
