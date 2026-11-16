@@ -5,8 +5,9 @@
 This review covers SDK **0.1.1**, native host protocol **1**, the TypeScript
 client and the Tauri v2 example. The supported minimum remains macOS 14.
 Recorded desktop checks ran on **Apple Silicon, macOS 26.6.2 (25G83)**, with
-**Xcode 26.5 beta (17F5032f)**. Results below are local verification; a hosted CI
-run has its own status.
+**Xcode 26.5 beta (17F5032f)**. The hosted quality gate also passed on the
+production Xcode build recorded below; desktop interaction results remain
+specific to the local machine.
 
 ## Automated checks
 
@@ -91,11 +92,32 @@ The interaction observations and executable hashes are recorded in
 200 responses and byte-for-byte matches for the published landing, privacy and
 support pages and all three GIFs.
 
+## Packaged release helper smoke
+
+The prepared `hooenas-notches-host-v0.1.1-universal-macos.tar.gz` was extracted
+and tested directly, without rebuilding the helper. Its SHA-256 is
+`59dd385e16b768fde30980a72ae9117c47c2316a22ac0f19a5fe83a6e050201c`.
+The checksum manifest passed; the extracted helper contains both `arm64` and
+`x86_64` and reports version `0.1.1`, protocol `1`.
+
+The existing open-stdin smoke passed ready, show, update, atomic rejection of an
+invalid patch, hide and quit against that extracted executable, with exit code
+0 and empty stderr. The bundled license, third-party notices, preserved upstream
+license and protocol documentation matched repository sources byte-for-byte.
+Archive and manifest hashes remained unchanged after the smoke. Evidence is
+retained locally at `output/release-asset-smoke-pusebbu4/verification.json`.
+
+This is a development helper without distribution signing or notarization, as
+stated in its bundled README. The smoke does not establish distribution
+qualification.
+
 ## Dependency and secret review
 
 Full `npm audit` checks for the development root, TypeScript client and Tauri
 example reported zero vulnerabilities, including development dependencies.
-Gitleaks found no secrets in the staged review changes. Those checks do not
+Gitleaks found no secrets in the staged review changes or the locally available
+Git history, including all branches at the time of the scan. The history result
+is recorded in `output/review-history-secrets.json`. These checks do not
 establish that every dependency or repository revision is free of vulnerabilities.
 
 The Rust lockfile retains an open moderate advisory for `glib 0.18.5`,
@@ -130,8 +152,22 @@ retains a plain-host comparison and detects a deliberately restored collapsed
 interception regression. Production sources are unchanged. Diagnostic matrix
 code and logging are excluded from the final fixture. Evidence is retained
 locally in `output/review-keyboard-ci-diagnostics.log` and
-`output/review-keyboard-focused-full.log`. The complete hosted gate must be
-checked again for the final fixture.
+`output/review-keyboard-focused-full.log`.
+
+Hosted [Quality run 43833573682](https://github.com/openhoo/hooenas-notches-sdk/actions/runs/43833573682)
+passed for source revision `2678d96f4b2958585b3a820311c447e1941a90e9` on
+November 16, 2026. It completed all 40 Swift tests with the documented single AX
+skip, all three keyboard cases, 25 client/adapter tests, four actual-host
+integrations, the open-stdin smoke, release builds, Tauri bundling, Clippy and
+documentation/media checks. The hosted build used the production Xcode version
+recorded above. Its log is retained locally in
+`output/review-quality-focused-hosted.log`.
+
+[CodeQL run 43829642947](https://github.com/openhoo/hooenas-notches-sdk/actions/runs/43829642947)
+passed at production-source revision `71ea51a49e06b30627ae15352ed17f86b1fe4d7e`,
+including Swift and JavaScript/TypeScript analysis. Production sources are
+unchanged between that revision and the hosted quality revision above. The
+subsequent commits changed the keyboard test fixture and review documentation.
 
 ## Remaining verification
 
@@ -140,8 +176,10 @@ checked again for the final fixture.
   has passed; those GUI environments were not exercised.
 - Qualify signing and notarization in each distributing application. The tested
   universal Tauri build was explicitly produced with `--no-sign`.
-- Complete remote CI verification and publication of the 0.1.1 changes. The
-  recorded local automated, desktop and media gates are complete.
+
+The hosted quality, local automated, desktop and media gates are complete.
+Versioned publication and final-head verification are recorded in the GitHub
+release, separately from the source-revision evidence above.
 
 The TypeScript package remains a repository source package; no npm publication
 is claimed by this review.
