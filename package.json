@@ -1,0 +1,15 @@
+{
+  "name": "hooenas-notches-development",
+  "version": "0.1.1",
+  "private": true,
+  "scripts": {
+    "format": "prettier --write --ignore-unknown .",
+    "format:check": "prettier --check --ignore-unknown ."
+  },
+  "devDependencies": {
+    "prettier": "3.10.1"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

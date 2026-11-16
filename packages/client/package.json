@@ -1,6 +1,6 @@
 {
   "name": "@hooenas-notches/client",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed JSON-lines client for the native Hooenas Notches macOS host",
   "type": "module",
   "license": "FSL-1.1-MIT",

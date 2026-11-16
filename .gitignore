@@ -14,3 +14,9 @@ xcuserdata/
 examples/tauri/src-tauri/gen/
 examples/tauri/src-tauri/binaries/*
 !examples/tauri/src-tauri/binaries/.gitkeep
+
+__pycache__/
+
+*.pyc
+
+.ruff_cache/

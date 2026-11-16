@@ -109,6 +109,7 @@ public final class NotchPanelController {
             panel = window
         }
         reposition()
+        guard panel != nil else { return }
         isVisible = true
         updateHitTesting()
         panel?.orderFrontRegardless()
@@ -142,16 +143,28 @@ public final class NotchPanelController {
         panel?.close()
         panel = nil
         content = AnyView(EmptyView())
+        expansion = { false }
     }
 
     private func reposition() {
         guard let panel else { return }
-        if let old = screen, NSScreen.screens.contains(where: { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == old.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber }) {
-            screen = NSScreen.screens.first(where: { $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == old.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber })
+        if let old = screen,
+            NSScreen.screens.contains(where: {
+                $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == old.deviceDescription[
+                    NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+            })
+        {
+            screen = NSScreen.screens.first(where: {
+                $0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber == old.deviceDescription[
+                    NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+            })
         } else {
             screen = NSScreen.main ?? NSScreen.screens.first
         }
-        guard let screen else { hide(); return }
+        guard let screen else {
+            hide()
+            return
+        }
         let cameraWidth: CGFloat
         if let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea {
             cameraWidth = max(0, right.minX - left.maxX)
@@ -166,18 +179,27 @@ public final class NotchPanelController {
             width: max(configuration.expandedSize.width, configuration.collapsedSize.width) + 80,
             height: max(configuration.expandedSize.height, configuration.collapsedSize.height) + 64
         )
-        let hosting = PassthroughHostingView(rootView: AnyView(
+        let rootView = AnyView(
             self.content.environment(\.notchScreenConfiguration, self.configuration)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .ignoresSafeArea(.container)
-        ))
+        )
+        let hosting: PassthroughHostingView
+        if let existing = panel.contentView as? PassthroughHostingView {
+            // Updating the existing root preserves SwiftUI state, native editors
+            // and first responder while the host refreshes progress or geometry.
+            existing.rootView = rootView
+            hosting = existing
+        } else {
+            hosting = PassthroughHostingView(rootView: rootView)
+        }
         // A notch is deliberately inside the camera/menu-bar area. Neither AppKit
         // nor SwiftUI should inset or resize its fixed stage away from that edge.
         hosting.sizingOptions = []
         hosting.safeAreaRegions = []
         hosting.frame = CGRect(origin: .zero, size: canvas)
         hosting.autoresizingMask = [.width, .height]
-        panel.contentView = hosting
+        if panel.contentView !== hosting { panel.contentView = hosting }
         panel.setFrame(
             NotchOverlayGeometry.panelFrame(
                 screenFrame: screen.frame, canvasSize: canvas,

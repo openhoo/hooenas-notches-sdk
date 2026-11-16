@@ -21,13 +21,18 @@ public struct ContourNotchShape: Shape {
 
     public var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(top, bottom) }
-        set { top = newValue.first; bottom = newValue.second }
+        set {
+            top = newValue.first
+            bottom = newValue.second
+        }
     }
 
     public func path(in rect: CGRect) -> Path {
-        guard rect.width > 0, rect.height > 0, rect.width.isFinite, rect.height.isFinite else { return Path() }
+        guard rect.width > 0, rect.height > 0, rect.width.isFinite, rect.height.isFinite,
+            rect.minX.isFinite, rect.minY.isFinite, rect.maxX.isFinite, rect.maxY.isFinite
+        else { return Path() }
         var p = Path()
-        let t = max(0, min(top.isFinite ? top : 8, rect.width / 4))
+        let t = max(0, min(top.isFinite ? top : 8, rect.width / 4, rect.height / 2))
         let b = max(0, min(bottom.isFinite ? bottom : 16, rect.height / 2, (rect.width - 2 * t) / 2))
         p.move(to: CGPoint(x: rect.minX, y: rect.minY))
         p.addCurve(

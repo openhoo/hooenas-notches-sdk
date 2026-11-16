@@ -114,11 +114,18 @@ public struct HostNotchState: Codable, Equatable, Sendable {
                 throw HostProtocolError("invalid_state", "Action ids must be unique.")
             }
         }
+        // A character can contain an arbitrarily large number of combining
+        // scalars. Bound the complete persisted state across separate patches,
+        // leaving room for the response envelope and a validated request id.
+        guard try JSONEncoder().encode(self).count <= HostLineFramer.maximumLineBytes - 2_048 else {
+            throw HostProtocolError("invalid_state", "The complete state is too large for a host response.")
+        }
     }
 
     static func validIdentifier(_ value: String, maximum: Int) -> Bool {
         !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && value.count <= maximum
+            && value.utf8.count <= maximum * 4
             && !value.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
     }
 }
@@ -202,9 +209,18 @@ public struct HostRequest: Codable, Equatable, Sendable {
         guard HostNotchState.validIdentifier(id, maximum: 128) else {
             throw HostProtocolError("invalid_request", "id must contain 1 to 128 non-control characters.")
         }
-        if (command == .hide || command == .quit), state != nil {
+        if command == .hide || command == .quit, state != nil {
             throw HostProtocolError("invalid_request", "hide and quit do not accept state.")
         }
+    }
+
+    /// Recover only a bounded, valid correlation id when another field is invalid.
+    public static func correlationID(in data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let id = object["id"] as? String,
+            HostNotchState.validIdentifier(id, maximum: 128)
+        else { return nil }
+        return id
     }
 }
 
@@ -316,7 +332,10 @@ public struct HostLineFramer: Sendable {
     }
 
     public mutating func finish() -> [HostInputFrame] {
-        defer { buffer.removeAll(); discarding = false }
+        defer {
+            buffer.removeAll()
+            discarding = false
+        }
         if discarding { return [.lineTooLong] }
         if buffer.isEmpty { return [] }
         if buffer.last == 13 { buffer.removeLast() }

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import HooenasNotches
 
 final class NotchContentInsetsTests: XCTestCase {

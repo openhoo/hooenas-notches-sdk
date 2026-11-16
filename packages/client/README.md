@@ -31,7 +31,7 @@ import { createTauriNotch } from "@hooenas-notches/client/tauri";
 
 const notch = await createTauriNotch();
 
-notch.onAction(async actionId => {
+notch.onAction(async (actionId) => {
   if (actionId === "cancel") {
     await notch.update({ activity: "idle", progress: null, subtitle: "Cancelled" });
   }
@@ -84,15 +84,15 @@ the supplied Tauri adapter need their own process transport.
 
 ## State and events
 
-| Field | Values |
-| --- | --- |
-| `style` | `contour`, `capsule`, `glass` |
-| `motion` | `spring`, `gentle`, `snappy` |
-| `expanded` | `true` / `false` |
-| `title`, `subtitle` | Text |
-| `activity` | `idle`, `working`, `listening`, `success` |
-| `progress` | `0…1`; `null` clears the value |
-| `actions` | Array of `{ id, label }` native buttons |
+| Field               | Values                                    |
+| ------------------- | ----------------------------------------- |
+| `style`             | `contour`, `capsule`, `glass`             |
+| `motion`            | `spring`, `gentle`, `snappy`              |
+| `expanded`          | `true` / `false`                          |
+| `title`, `subtitle` | Text                                      |
+| `activity`          | `idle`, `working`, `listening`, `success` |
+| `progress`          | `0…1`; `null` clears the value            |
+| `actions`           | Array of `{ id, label }` native buttons   |
 
 `show` and `update` accept partial patches. Omitted fields keep their current
 value. `show`, `update`, `hide`, and `quit` resolve with the acknowledged native
@@ -101,9 +101,22 @@ acknowledgements and changes from hover, clicks, and Escape. `onEvent` exposes
 all protocol events. Subscriptions return an unsubscribe function.
 
 Requests have bounded response timeouts. Invalid host messages, unsupported
-protocol versions, and process exit reject waiting requests. JSON lines are
-limited to 65,536 UTF-8 bytes. Call `quit()` for graceful shutdown or `dispose()`
-to force close the transport.
+protocol versions, transport failures, timeouts, and process exit reject waiting
+requests and close the transport. A timeout ends the session because a command
+may already have reached the native host; create a new client and process to
+continue. Writes are serialized and a timed-out queued command is never sent.
+JSON lines are limited to 65,536 UTF-8 bytes before LF, including a CR in CRLF.
+
+Call `quit()` for graceful shutdown; subsequent commands are rejected immediately.
+The host gets one timeout interval to exit after acknowledging quit. `dispose()`
+force closes the transport and is safe to call repeatedly. A transport's `close()`
+must release its process and listeners. Tauri's adapter does this automatically,
+including a child whose spawn completes after startup has already timed out.
+
+Consumer callbacks may be synchronous or asynchronous. Their failures do not
+interrupt protocol processing. Supply `onListenerError` in `NotchClient` or
+`createTauriNotch` options to handle them; the default reports them to the console.
+`timeoutMs` accepts values from 1 to 2,147,483,647 milliseconds.
 
 ## License
 

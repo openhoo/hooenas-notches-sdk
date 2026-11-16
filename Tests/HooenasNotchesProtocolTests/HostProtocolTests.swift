@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import HooenasNotchesProtocol
 
 final class HostProtocolTests: XCTestCase {
@@ -9,7 +10,8 @@ final class HostProtocolTests: XCTestCase {
 
     func testPatchPreservesFieldsAndNullClearsProgress() throws {
         var session = HostSession()
-        try session.apply(decode(#"{"id":"1","command":"show","state":{"title":"Upload","progress":0.4,"activity":"working"}}"#))
+        try session.apply(
+            decode(#"{"id":"1","command":"show","state":{"title":"Upload","progress":0.4,"activity":"working"}}"#))
         try session.apply(decode(#"{"id":"2","command":"update","state":{"subtitle":"Noch einen Moment"}}"#))
         XCTAssertEqual(session.state.title, "Upload")
         XCTAssertEqual(session.state.progress, 0.4)
@@ -23,7 +25,9 @@ final class HostProtocolTests: XCTestCase {
         var session = HostSession()
         try session.apply(decode(#"{"id":"1","command":"show","state":{"title":"Original","progress":0.25}}"#))
         let before = session.state
-        XCTAssertThrowsError(try session.apply(decode(#"{"id":"2","command":"update","state":{"title":"Changed","progress":1.1}}"#))) { error in
+        XCTAssertThrowsError(
+            try session.apply(decode(#"{"id":"2","command":"update","state":{"title":"Changed","progress":1.1}}"#))
+        ) { error in
             XCTAssertEqual((error as? HostProtocolError)?.code, "invalid_state")
         }
         XCTAssertEqual(session.state, before)
@@ -63,9 +67,13 @@ final class HostProtocolTests: XCTestCase {
     func testIdentifiersAndActionsAreValidated() throws {
         var session = HostSession()
         XCTAssertThrowsError(try session.apply(.init(id: "\n", command: .show)))
-        XCTAssertThrowsError(try session.apply(.init(id: "1", command: .show, state: .init(actions: [
-            .init(id: "cancel", label: "Cancel"), .init(id: "cancel", label: "Again"),
-        ]))))
+        XCTAssertThrowsError(
+            try session.apply(
+                .init(
+                    id: "1", command: .show,
+                    state: .init(actions: [
+                        .init(id: "cancel", label: "Cancel"), .init(id: "cancel", label: "Again"),
+                    ]))))
         XCTAssertThrowsError(try session.apply(.init(id: "2", command: .show, state: .init(title: "   "))))
     }
 
@@ -122,5 +130,38 @@ final class HostProtocolTests: XCTestCase {
         XCTAssertEqual(framer.append(Data("last".utf8)), [])
         XCTAssertEqual(framer.finish(), [.line(Data("last".utf8))])
         XCTAssertEqual(framer.finish(), [])
+    }
+
+    func testCombinedUnicodePatchesCannotOverflowHostResponseFrame() throws {
+        var session = HostSession()
+        let clustered = "A" + String(repeating: "\u{0301}", count: 17_000)
+        try session.apply(.init(id: "title", command: .show, state: .init(title: clustered)))
+        let before = session.state
+        XCTAssertThrowsError(
+            try session.apply(.init(id: "subtitle", command: .update, state: .init(subtitle: clustered)))
+        ) { error in
+            XCTAssertEqual((error as? HostProtocolError)?.code, "invalid_state")
+        }
+        XCTAssertEqual(session.state, before)
+        let encoded = try JSONEncoder().encode(HostEvent.result(id: "snapshot", state: session.state, visible: true))
+        XCTAssertLessThanOrEqual(encoded.count, HostLineFramer.maximumLineBytes)
+    }
+
+    func testIdentifiersHaveABoundedUTF8Representation() throws {
+        let oversized = "a" + String(repeating: "\u{0301}", count: 1_000)
+        var session = HostSession()
+        XCTAssertThrowsError(try session.apply(.init(id: oversized, command: .show)))
+        XCTAssertThrowsError(
+            try session.apply(
+                .init(id: "action", command: .show, state: .init(actions: [.init(id: oversized, label: "Action")]))))
+        XCTAssertFalse(session.visible)
+    }
+
+    func testInvalidRequestsOnlyRecoverSafeCorrelationIDs() throws {
+        XCTAssertEqual(HostRequest.correlationID(in: Data(#"{"id":"safe","command":"bad"}"#.utf8)), "safe")
+        XCTAssertNil(HostRequest.correlationID(in: Data(#"{"id":"unsafe\n","command":"bad"}"#.utf8)))
+        let identifier = "a" + String(repeating: "\u{0301}", count: 1_000)
+        let data = try JSONEncoder().encode(["id": identifier, "command": "bad"])
+        XCTAssertNil(HostRequest.correlationID(in: data))
     }
 }

@@ -1,4 +1,5 @@
 // Hooenas Notches. See LICENSE and THIRD_PARTY_NOTICES.md for source attribution and terms.
+import AppKit
 import SwiftUI
 
 /// A top-anchored, animated notch with interchangeable skins and arbitrary SwiftUI content.
@@ -18,6 +19,7 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
     @State private var isHovered = false
     @State private var hoverExpanded = false
     @State private var hoverTask: Task<Void, Never>?
+    @State private var focusContext = NotchFocusContext()
 
     public init(
         style: NotchStyle = .contour,
@@ -52,12 +54,14 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
             surface
             if isExpanded {
                 expanded
-                    .padding(EdgeInsets(
-                        top: geometry.contentInsets.top,
-                        leading: geometry.contentInsets.leading,
-                        bottom: geometry.contentInsets.bottom,
-                        trailing: geometry.contentInsets.trailing
-                    ))
+                    .padding(
+                        EdgeInsets(
+                            top: geometry.contentInsets.top,
+                            leading: geometry.contentInsets.leading,
+                            bottom: geometry.contentInsets.bottom,
+                            trailing: geometry.contentInsets.trailing
+                        )
+                    )
                     .frame(width: size.width, height: size.height, alignment: .topLeading)
                     .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.96, anchor: .top)))
                     .overlay(alignment: .topTrailing) {
@@ -74,6 +78,7 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
                         .padding(.top, 12)
                         .padding(.trailing, 14)
                     }
+                    .onExitCommand(perform: collapse)
             } else {
                 Button {
                     hoverTask?.cancel()
@@ -86,12 +91,13 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
                         .contentShape(silhouette)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Expand notch")
+                .help("Expand notch")
                 .accessibilityHint("Opens the notch controls")
                 .transition(.opacity)
             }
         }
         .frame(width: size.width, height: size.height, alignment: .top)
+        .background(NotchFocusReader(context: focusContext).accessibilityHidden(true))
         .clipShape(silhouette)
         .contentShape(silhouette)
         .shadow(color: .black.opacity(style == .glass ? 0.24 : 0.3), radius: isExpanded ? 22 : 8, y: 8)
@@ -105,9 +111,10 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
         .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: isExpanded)
         .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: style)
         .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: configuration)
-        .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.8), value: isHovered)
+        .animation(
+            reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.8), value: isHovered
+        )
         .onHover(perform: hover)
-        .onExitCommand(perform: collapse)
         .onDisappear { hoverTask?.cancel() }
         .accessibilityElement(children: .contain)
         .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
@@ -119,13 +126,18 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
                 .overlay(silhouette.fill(Color(red: 0.09, green: 0.11, blue: 0.16).opacity(0.63)))
                 .overlay(silhouette.strokeBorderCompatibility(.white.opacity(0.16), lineWidth: 1))
         } else if style == .contour {
-            silhouette.fill(LinearGradient(
-                colors: [Color(red: 0.012, green: 0.014, blue: 0.022), Color(red: 0.040, green: 0.045, blue: 0.075)],
-                startPoint: .top, endPoint: .bottom
-            ))
-            .overlay(silhouette.strokeBorderCompatibility(
-                Color(red: 0.48, green: 0.54, blue: 0.86).opacity(0.16), lineWidth: 1
-            ))
+            silhouette.fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.012, green: 0.014, blue: 0.022), Color(red: 0.040, green: 0.045, blue: 0.075),
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+            )
+            .overlay(
+                silhouette.strokeBorderCompatibility(
+                    Color(red: 0.48, green: 0.54, blue: 0.86).opacity(0.16), lineWidth: 1
+                ))
         } else {
             silhouette.fill(Color(red: 0.055, green: 0.06, blue: 0.075))
                 .overlay(silhouette.strokeBorderCompatibility(.white.opacity(0.12), lineWidth: 1))
@@ -154,10 +166,56 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
                 try? await Task.sleep(for: .milliseconds(400))
                 guard !Task.isCancelled, !isHovered else { return }
                 hoverExpanded = false
+                guard !focusContext.ownsKeyboardFocus else { return }
                 isExpanded = false
             }
         }
     }
+}
+
+@MainActor
+private final class NotchFocusContext {
+    weak var marker: NSView?
+
+    var ownsKeyboardFocus: Bool {
+        guard let marker, let window = marker.window,
+            let responder = window.firstResponder as? NSView,
+            responder.window === window
+        else { return false }
+        let focusedView: NSView
+        if let editor = responder as? NSTextView, editor.isFieldEditor,
+            let owner = editor.delegate as? NSView, owner.window === window
+        {
+            focusedView = owner
+        } else {
+            focusedView = responder
+        }
+        guard focusedView !== marker, !marker.isDescendant(of: focusedView),
+            !focusedView.isHiddenOrHasHiddenAncestor
+        else { return false }
+        let focusedBounds = focusedView.convert(focusedView.bounds, to: marker)
+        let overlap = marker.bounds.intersection(focusedBounds)
+        return !overlap.isNull && overlap.width > 0 && overlap.height > 0
+    }
+}
+
+private struct NotchFocusReader: NSViewRepresentable {
+    let context: NotchFocusContext
+
+    func makeNSView(context: Context) -> NotchFocusMarker {
+        let view = NotchFocusMarker()
+        view.setAccessibilityElement(false)
+        self.context.marker = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NotchFocusMarker, context: Context) {
+        self.context.marker = nsView
+    }
+}
+
+private final class NotchFocusMarker: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// Shared shape dispatch ensures inline rendering and overlay hit regions agree.
@@ -168,7 +226,10 @@ struct NotchSilhouette: Shape {
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(top, bottom) }
-        set { top = newValue.first; bottom = newValue.second }
+        set {
+            top = newValue.first
+            bottom = newValue.second
+        }
     }
 
     func path(in rect: CGRect) -> Path {

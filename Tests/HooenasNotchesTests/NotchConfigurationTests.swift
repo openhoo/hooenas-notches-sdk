@@ -1,7 +1,17 @@
 import XCTest
+
 @testable import HooenasNotches
 
 final class NotchConfigurationTests: XCTestCase {
+    func testMissingOrInvalidCameraMetricsPreserveCustomGeometry() {
+        let compact = NotchConfiguration(collapsedSize: CGSize(width: 80, height: 48))
+        XCTAssertEqual(compact.accommodating(cameraHousingWidth: 0, safeAreaHeight: 0), compact)
+
+        let large = NotchConfiguration(collapsedSize: CGSize(width: 400, height: 64))
+        XCTAssertEqual(large.accommodating(cameraHousingWidth: .infinity, safeAreaHeight: .infinity), large)
+        XCTAssertEqual(large.accommodating(cameraHousingWidth: .nan, safeAreaHeight: .nan), large)
+    }
+
     func testRejectsNonfiniteAndUndersizedGeometry() {
         let config = NotchConfiguration(
             collapsedSize: CGSize(width: CGFloat.nan, height: -1),

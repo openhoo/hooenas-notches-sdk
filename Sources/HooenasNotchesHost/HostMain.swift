@@ -1,8 +1,8 @@
 // Copyright 2026 Hooenas Notches contributors. Licensed under FSL-1.1-MIT.
 import AppKit
+import Darwin
 import HooenasNotches
 import HooenasNotchesProtocol
-import Darwin
 import SwiftUI
 
 @main
@@ -11,21 +11,24 @@ enum HooenasNotchesHostMain {
     static func main() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments == ["--version"] {
-            print("hooenas-notches-host 0.1.0 (protocol 1)")
+            print("hooenas-notches-host 0.1.1 (protocol 1)")
             return
         }
         if arguments == ["--help"] {
-            print("""
-            Usage: hooenas-notches-host [--stdio]
-            Native macOS notch host. Reads JSON Lines from stdin and writes events to stdout.
-            Commands: show, update, hide, quit. See docs/host-protocol.md.
-            """)
+            print(
+                """
+                Usage: hooenas-notches-host [--stdio]
+                Native macOS notch host. Reads JSON Lines from stdin and writes events to stdout.
+                Commands: show, update, hide, quit. See docs/host-protocol.md.
+                """)
             return
         }
         guard arguments.isEmpty || arguments == ["--stdio"] else {
             FileHandle.standardError.write(Data("Unknown arguments. Use --help.\n".utf8))
             exit(2)
         }
+        // A closed parent stdout pipe should take the normal cleanup path.
+        signal(SIGPIPE, SIG_IGN)
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let delegate = HostApplication()
@@ -50,23 +53,48 @@ private final class HostApplication: NSObject, NSApplicationDelegate, Observable
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         emit(.ready)
-        let stream = Self.stdinStream()
-        inputTask = Task { [weak self] in
-            for await input in stream {
-                guard let self else { return }
-                switch input {
-                case .frame(.line(let data)): consume(data)
-                case .frame(.lineTooLong):
-                    emit(.error(HostProtocolError("line_too_long", "A request must not exceed 65536 bytes.")))
-                case .readError:
-                    emit(.error(HostProtocolError("input_error", "The host could not read stdin.")))
-                case .end:
-                    panel.hide()
-                    NSApplication.shared.terminate(nil)
+        inputTask = Task.detached(priority: .userInitiated) { [weak self] in
+            var framer = HostLineFramer()
+            var bytes = [UInt8](repeating: 0, count: 4_096)
+            // POSIX read returns available short pipe writes immediately.
+            // Await each delivery so a fast writer is backpressured by the pipe
+            // rather than an unbounded queue of pending UI requests.
+            while !Task.isCancelled {
+                let count = Darwin.read(STDIN_FILENO, &bytes, bytes.count)
+                if count == 0 { break }
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    _ = await self?.receive(.readError)
+                    return
                 }
-                if session.terminated { return }
+                for frame in framer.append(Data(bytes.prefix(count))) {
+                    guard await self?.receive(.frame(frame)) == true else { return }
+                }
             }
+            guard !Task.isCancelled else { return }
+            for frame in framer.finish() {
+                guard await self?.receive(.frame(frame)) == true else { return }
+            }
+            _ = await self?.receive(.end)
         }
+    }
+
+    private func receive(_ input: Input) -> Bool {
+        switch input {
+        case .frame(.line(let data)): consume(data)
+        case .frame(.lineTooLong):
+            emit(.error(HostProtocolError("line_too_long", "A request must not exceed 65536 bytes.")))
+        case .readError:
+            emit(.error(HostProtocolError("input_error", "The host could not read stdin.")))
+            panel.hide()
+            NSApplication.shared.terminate(nil)
+            return false
+        case .end:
+            panel.hide()
+            NSApplication.shared.terminate(nil)
+            return false
+        }
+        return !session.terminated
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -75,10 +103,9 @@ private final class HostApplication: NSObject, NSApplicationDelegate, Observable
     }
 
     private func consume(_ data: Data) {
-        var requestID: String?
+        let requestID = HostRequest.correlationID(in: data)
         do {
             let request = try JSONDecoder().decode(HostRequest.self, from: data)
-            requestID = request.id
             let oldStyle = state.style
             let result = try session.apply(request)
             state = session.state
@@ -92,10 +119,11 @@ private final class HostApplication: NSObject, NSApplicationDelegate, Observable
         } catch let error as HostProtocolError {
             emit(.error(id: requestID, error))
         } catch {
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            let candidate = object?["id"] as? String
-            if let candidate, candidate.count <= 128 { requestID = candidate }
-            emit(.error(id: requestID, HostProtocolError("invalid_request", "Expected a JSON object with a valid id, command and optional state.")))
+            emit(
+                .error(
+                    id: requestID,
+                    HostProtocolError(
+                        "invalid_request", "Expected a JSON object with a valid id, command and optional state.")))
         }
     }
 
@@ -127,32 +155,6 @@ private final class HostApplication: NSObject, NSApplicationDelegate, Observable
         }
     }
 
-    private static func stdinStream() -> AsyncStream<Input> {
-        AsyncStream { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                var framer = HostLineFramer()
-                var bytes = [UInt8](repeating: 0, count: 4_096)
-                // Foundation's read(upToCount:) may try to fill its requested buffer on
-                // a pipe. POSIX read returns each available short write immediately,
-                // which is essential while the parent keeps stdin open between requests.
-                while true {
-                    let count = Darwin.read(STDIN_FILENO, &bytes, bytes.count)
-                    if count == 0 { break }
-                    if count < 0 {
-                        if errno == EINTR { continue }
-                        continuation.yield(.readError)
-                        break
-                    }
-                    for frame in framer.append(Data(bytes.prefix(count))) {
-                        continuation.yield(.frame(frame))
-                    }
-                }
-                for frame in framer.finish() { continuation.yield(.frame(frame)) }
-                continuation.yield(.end)
-                continuation.finish()
-            }
-        }
-    }
 }
 
 private struct HostNotchContent: View {
@@ -204,7 +206,8 @@ private struct HostNotchContent: View {
                         .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(model.state.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                        Text(model.state.subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(2)
+                        Text(model.state.subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(2)
                     }
                     Spacer(minLength: 28)
                 }

@@ -1,0 +1,12 @@
+**/.build/
+**/.swiftpm/
+**/output/
+**/node_modules/
+**/dist/
+**/target/
+**/gen/
+**/binaries/
+**/package-lock.json
+**/Cargo.lock
+**/*.pbxproj
+**/xcuserdata/

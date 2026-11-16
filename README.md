@@ -6,10 +6,10 @@ Tauri frontend through a typed TypeScript client.
 
 ## Surfaces
 
-| Contour | Capsule | Liquid Glass |
-| --- | --- | --- |
-| Soft shoulders, an indigo contour and a graphite surface. | A rounded silhouette attached to the screen's top edge. | A translucent material with a subtle outline. |
-| ![Animated Contour notch](docs/showcase/contour.gif) | ![Animated Capsule notch](docs/showcase/capsule.gif) | ![Animated Liquid Glass notch](docs/showcase/glass.gif) |
+| Contour                                                   | Capsule                                                 | Liquid Glass                                            |
+| --------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------- |
+| Soft shoulders, an indigo contour and a graphite surface. | A rounded silhouette attached to the screen's top edge. | A translucent material with a subtle outline.           |
+| ![Animated Contour notch](docs/showcase/contour.gif)      | ![Animated Capsule notch](docs/showcase/capsule.gif)    | ![Animated Liquid Glass notch](docs/showcase/glass.gif) |
 
 All three share the same content API, `spring`, `gentle` and `snappy` motion
 presets, hover expansion, click expansion and Escape to collapse. Reduce Motion
@@ -32,7 +32,7 @@ Add the public SDK repository to your package dependencies:
 ```swift
 .package(
     url: "https://github.com/openhoo/hooenas-notches-sdk.git",
-    from: "0.1.0"
+    from: "0.1.1"
 )
 ```
 
@@ -176,7 +176,7 @@ import { createTauriNotch } from "@hooenas-notches/client/tauri";
 
 const notch = await createTauriNotch();
 
-notch.onAction(actionId => {
+notch.onAction((actionId) => {
   if (actionId === "cancel") {
     void notch.update({ activity: "idle", progress: null, subtitle: "Cancelled" });
   }
@@ -230,18 +230,19 @@ source is in [`Sources/HooenasNotchesShowcase`](Sources/HooenasNotchesShowcase).
 ## Development
 
 ```sh
-swift test
-swift build -c release --product hooenas-notches-host
-npm --prefix packages/client ci
-npm --prefix packages/client test
-npm --prefix packages/client run test:native
+./scripts/check.sh
 ```
 
-Swift tests cover geometry, content spacing, protocol validation and framing.
-On a Mac with a desktop display, attachment tests also inspect the actual panel,
-hosting view and rendered top pixel row. The client has protocol tests and a
-test that exchanges commands with the real Swift helper. That integration test
-skips on non-macOS hosts or when no release helper is available.
+The same macOS gate runs in GitHub Actions: Swift formatting, tests and release
+builds with warnings as errors; client and real-host integration tests; Tauri
+bundling and Clippy; and documentation/media validation. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites and focused commands, and the
+[changelog](CHANGELOG.md) for the reviewed 0.1.1 fixes.
+
+Native tests inspect the actual panel, hosting view, editor focus, accessibility
+and rendered top pixels on a Mac with a desktop display. Tests that need a
+missing display report a skip. The real-host integration requires the release
+helper; the complete gate builds it before running that test.
 
 ## License and provenance
 

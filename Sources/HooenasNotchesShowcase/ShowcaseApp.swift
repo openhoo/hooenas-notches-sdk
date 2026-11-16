@@ -1,7 +1,7 @@
 // Hooenas Notches SDK. See LICENSE and THIRD_PARTY_NOTICES.md.
 import AppKit
-import SwiftUI
 import HooenasNotches
+import SwiftUI
 
 @main
 struct HooenasNotchesShowcase: App {
@@ -33,9 +33,11 @@ private final class ShowcaseModel: ObservableObject {
     private let panel = NotchPanelController()
 
     func present() {
-        panel.show(content: ShowcaseNotch(model: self), style: style, isExpanded: { [weak self] in
-            self?.expanded ?? false
-        })
+        panel.show(
+            content: ShowcaseNotch(model: self), style: style,
+            isExpanded: { [weak self] in
+                self?.expanded ?? false
+            })
         overlayVisible = panel.isVisible
     }
 
@@ -57,7 +59,10 @@ private struct ShowcaseWindow: View {
             }
             ZStack(alignment: .top) {
                 RoundedRectangle(cornerRadius: 22)
-                    .fill(LinearGradient(colors: [Color.indigo.opacity(0.25), Color.teal.opacity(0.14)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.indigo.opacity(0.25), Color.teal.opacity(0.14)], startPoint: .topLeading,
+                            endPoint: .bottomTrailing))
                 ShowcaseNotch(model: model)
             }
             .frame(height: 280)
@@ -92,8 +97,10 @@ private struct ShowcaseWindow: View {
                         .buttonStyle(.borderedProminent)
                 }
             }
-            Text("Hover or click to expand. The screen overlay follows the physical top edge and leaves room for the camera.")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(
+                "Hover or click to expand. The screen overlay follows the physical top edge and leaves room for the camera."
+            )
+            .font(.caption).foregroundStyle(.secondary)
         }
         .padding(32)
         .background(Color(red: 0.035, green: 0.04, blue: 0.06))
@@ -130,8 +137,11 @@ private struct ShowcaseNotch: View {
                     Text(model.style.title + " · " + model.motion.title)
                         .font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
                     Spacer()
-                    Button("Finish") { model.progress = 1; model.activity = .success }
-                        .buttonStyle(.bordered)
+                    Button("Finish") {
+                        model.progress = 1
+                        model.activity = .success
+                    }
+                    .buttonStyle(.bordered)
                 }
             }
         }

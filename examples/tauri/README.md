@@ -26,8 +26,12 @@ npm run tauri:dev
 
 Tauri's `beforeDevCommand` builds the release Swift host, copies it to
 `src-tauri/binaries/hooenas-notches-host-<target-triple>`, and starts Vite. The Rust
-target triple comes from `CARGO_BUILD_TARGET`, or `rustc -vV` for the current host.
-The Swift architecture is selected to match that triple.
+target triple comes from Tauri's `TAURI_ENV_TARGET_TRIPLE` build-hook variable,
+then `CARGO_BUILD_TARGET`, or `rustc -vV` for the current host. The Swift
+architecture is selected to match that triple. Explicit Tauri `--target`
+builds therefore prepare the correct helper. `universal-apple-darwin` builds
+both Swift architectures and combines them with `lipo` into one sidecar. The
+two individual helpers are retained for Tauri's intermediate architecture builds.
 
 The example supports Contour, Capsule, and Glass styles, three motion presets,
 expanded and collapsed presentation, progress, and native action callbacks.
@@ -40,7 +44,12 @@ through Tauri enables the native sidecar.
 npm run tauri:build
 ```
 
-The bundle contains the architecture-specific native helper. Distribution beyond
+For a universal application, install both macOS Rust targets and run
+`npm run tauri:build -- --target universal-apple-darwin`. The helper build
+supports both Apple Silicon and Intel.
+
+The bundle contains a native helper with the same architecture as the application
+(both architectures for a universal bundle). Distribution beyond
 your development machine also requires your own macOS signing and notarization
 setup; none is configured by this example.
 
@@ -78,8 +87,8 @@ the application that distributes the helper.
 
 ## Documentation checked
 
-The integration was checked against Tauri v2 documentation through the configured
-HooLLM Context7 connection on November 15, 2026:
+The integration and target selection were checked against Tauri v2 documentation
+through the configured HooLLM Context7 connection on November 16, 2026:
 
 - https://v2.tauri.app/develop/sidecar/
 - https://v2.tauri.app/plugin/shell/

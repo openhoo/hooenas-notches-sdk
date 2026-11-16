@@ -107,13 +107,16 @@ public struct NotchConfiguration: Equatable, Sendable {
     /// Leave room for compact leading/trailing controls around a physical camera housing.
     /// The extra 56 points on each side keep the default padded content out of the camera area.
     public func accommodating(cameraHousingWidth: CGFloat, safeAreaHeight: CGFloat) -> Self {
-        let topInset = automaticallyPadsCamera && safeAreaHeight.isFinite && safeAreaHeight > 0
-            ? max(contentInsets.top, safeAreaHeight + 12)
+        let cameraWidth = cameraHousingWidth.isFinite ? max(0, cameraHousingWidth) : 0
+        let safeHeight = safeAreaHeight.isFinite ? max(0, safeAreaHeight) : 0
+        let topInset =
+            automaticallyPadsCamera && safeHeight > 0
+            ? max(contentInsets.top, safeHeight + 12)
             : contentInsets.top
         return Self(
             collapsedSize: CGSize(
-                width: max(collapsedSize.width, cameraHousingWidth + 112),
-                height: max(collapsedSize.height, safeAreaHeight)
+                width: cameraWidth > 0 ? max(collapsedSize.width, cameraWidth + 112) : collapsedSize.width,
+                height: max(collapsedSize.height, safeHeight)
             ),
             expandedSize: expandedSize,
             collapsedTopRadius: collapsedTopRadius,
