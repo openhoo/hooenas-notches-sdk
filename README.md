@@ -13,7 +13,8 @@ Tauri frontend through a typed TypeScript client.
 
 All three share the same content API, `spring`, `gentle` and `snappy` motion
 presets, hover expansion, click expansion and Escape to collapse. Reduce Motion
-uses a short fade and pauses continuous status animations.
+uses a brief ease-out transition, removes hover scaling and pauses continuous
+status animations.
 
 ## Requirements
 
@@ -27,12 +28,12 @@ the TypeScript protocol layer can be imported independently of Tauri.
 
 ## Install with Swift Package Manager
 
-Add the public SDK repository to your package dependencies:
+Add SDK **0.2.0** to your package dependencies:
 
 ```swift
 .package(
     url: "https://github.com/openhoo/hooenas-notches-sdk.git",
-    from: "0.1.1"
+    from: "0.2.0"
 )
 ```
 
@@ -44,6 +45,18 @@ Add the product to your app target:
 
 `HooenasNotchesProtocol` is a separate product for Swift hosts that only need the
 JSON-lines protocol types and validation.
+
+### Use a local checkout
+
+For local development, place this checkout next to your app package and replace
+the remote dependency with:
+
+```swift
+.package(path: "../hooenas-notches-sdk")
+```
+
+The examples below use the 0.2.0 API. Apps staying on 0.1.1 can use the
+[tagged 0.1.1 documentation](https://github.com/openhoo/hooenas-notches-sdk/blob/v0.1.1/README.md).
 
 ## SwiftUI content
 
@@ -79,65 +92,78 @@ struct UploadNotch: View {
 }
 ```
 
-Compact content is intentionally arranged at the sides so it can flank a
-MacBook camera housing. Inline views use the requested geometry directly.
+For compact content with an overlay, use `NotchCompactWings` to reserve the
+camera gap automatically. Each slot can hold a short symbol, label or value;
+the compact notch remains one accessible button.
 
 ## Native screen overlay
 
 `NotchPanelController` hosts the view in a transparent AppKit panel. It centers
 the surface on the selected display's physical top edge and reserves space for
 its camera housing. Keep the controller and the expansion state alive for as
-long as the overlay should exist.
+long as the overlay should exist. The binding-based overload keeps the notch
+and its click target in sync. This overload was added in 0.2.0. For 0.1.1, use the [content-based overlay example](https://github.com/openhoo/hooenas-notches-sdk/blob/v0.1.1/README.md#native-screen-overlay).
 
 ```swift
 import SwiftUI
 import HooenasNotches
 
-@MainActor
-final class ScreenNotch: ObservableObject {
-    private let panel = NotchPanelController()
-    private let state = ScreenNotchState()
-
-    func show() {
-        panel.show(
-            content: ScreenNotchContent(state: state),
-            style: .contour,
-            isExpanded: { [weak state = state] in state?.expanded ?? false }
-        )
-    }
-
-    func hide() { panel.hide() }
-}
-
-private final class ScreenNotchState: ObservableObject {
-    @Published var expanded = false
-}
-
-private struct ScreenNotchContent: View {
-    @ObservedObject var state: ScreenNotchState
+struct ScreenNotch: View {
+    @State private var panel = NotchPanelController()
+    @State private var expanded = false
 
     var body: some View {
-        HooenasNotch(isExpanded: $state.expanded) {
-            HStack {
-                NotchActivityIndicator(activity: .listening)
-                Spacer()
-                Image(systemName: "waveform")
+        HStack {
+            Button("Show notch", action: show)
+            Button("Open and focus") {
+                expanded = true
+                show()
+                panel.focus()
+            }
+            Button("Hide notch", action: panel.hide)
+        }
+        .onDisappear(perform: panel.hide)
+    }
+
+    private func show() {
+        panel.show(
+            configuration: NotchConfiguration(expandedSize: CGSize(width: 480, height: 240)),
+            style: .contour,
+            isExpanded: $expanded,
+            hoverOpens: false
+        ) {
+            NotchCompactWings {
+                Image(systemName: "timer").accessibilityHidden(true)
+            } trailing: {
+                Text("14:30").accessibilityLabel("14 minutes, 30 seconds left")
             }
         } expanded: {
-            Text("Listening for your next idea").font(.headline)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Focus session").font(.headline)
+                    ProgressView(value: 0.42)
+                    Text("Your next break is in 14 minutes.")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
 ```
 
-Store a `ScreenNotch` in your app, for example with `@StateObject`, and call
-`show()` or `hide()` from your UI. Pass the same style and configuration to the
-view and panel. Call `update(...)` to replace visible content or change geometry,
-and use the `screen:` parameter to choose an `NSScreen`.
+Call `show()` again to change size, motion or appearance. For an observable
+custom wrapper whose content changes while the panel is visible, use
+`show(content:configuration:style:screen:isExpanded:)` or `update(...)` and
+pass the same style, configuration and state to the view and panel. Use
+`screen:` to choose an `NSScreen`; refreshes preserve the native hosting view
+and text editor focus.
 
 Showing the panel does not activate the app. Pointer events outside the visible
-shape pass through. `layoutSnapshot` exposes the screen, panel and hosting-view
-frames for placement diagnostics.
+shape pass through. Use `focus()` for a deliberate keyboard action, and provide
+a focused control in your expanded view if the action should begin editing.
+`NotchAccessibilityLabels` accepts localized text for the expand hint, collapse
+button and accessibility state. `layoutSnapshot` exposes the screen, panel and
+hosting-view frames for placement diagnostics.
 
 ## Geometry and content spacing
 
@@ -158,8 +184,16 @@ let configuration = NotchConfiguration(
 
 The native overlay widens its compact state to leave room on both sides of a
 camera housing. Expanded content gets at least the display's top safe area plus
-12 points. Set `automaticallyPadsCamera: false` when you deliberately provide
-your own camera-aware layout. Invalid dimensions and insets are normalized.
+12 points when space permits. Set `automaticallyPadsCamera: false` when you
+provide your own camera aware layout. The overlay fits the requested dimensions
+to the selected display. For an inline preview, call
+`configuration.fitting(in: containerSize)`. `expandedContentSize` reports the
+remaining space after the resolved insets. Arrange adaptive content using
+`ViewThatFits`, a grid or a scroll view rather than tying controls to the
+requested size. `panel.configuration` exposes the applied dimensions.
+
+See [notch recipes](docs/recipes.md) for a resizable two-card example and ways
+to map common app workflows to the compact and expanded surface.
 
 ## TypeScript and Tauri
 
@@ -169,16 +203,18 @@ state; the bundled `hooenas-notches-host` process draws the native overlay.
 
 The client is available from this repository as a local package. It has not been
 published to npm. The included Tauri app uses a `file:../../packages/client`
-dependency.
+dependency. The sizing check below uses the 0.2.0 client.
+When the bundled host is older, the capability is absent and its default size
+continues to work.
 
 ```ts
 import { createTauriNotch } from "@hooenas-notches/client/tauri";
 
 const notch = await createTauriNotch();
 
-notch.onAction((actionId) => {
+notch.onAction(async (actionId) => {
   if (actionId === "cancel") {
-    void notch.update({ activity: "idle", progress: null, subtitle: "Cancelled" });
+    await notch.update({ activity: "idle", progress: null, subtitle: "Cancelled" });
   }
 });
 
@@ -194,6 +230,9 @@ await notch.show({
 });
 
 await notch.update({ progress: 1, activity: "success", subtitle: "All done" });
+if (notch.capabilities.includes("expanded-size")) {
+  await notch.update({ expandedSize: { width: 520, height: 240 } });
+}
 await notch.hide();
 await notch.quit();
 ```
@@ -223,9 +262,10 @@ and [host protocol](docs/host-protocol.md).
 swift run HooenasNotchesShowcase
 ```
 
-The small SDK showcase has an inline preview, all surfaces and motion presets,
-activity and progress controls, and a button for the real screen overlay. Its
-source is in [`Sources/HooenasNotchesShowcase`](Sources/HooenasNotchesShowcase).
+The SDK showcase has an inline preview, all surfaces and motion presets,
+activity and progress controls, width and height sliders, and a button for the
+real screen overlay. Its source is in
+[`Sources/HooenasNotchesShowcase`](Sources/HooenasNotchesShowcase).
 
 ## Development
 
@@ -237,7 +277,7 @@ The same macOS gate runs in GitHub Actions: Swift formatting, tests and release
 builds with warnings as errors; client and real-host integration tests; Tauri
 bundling and Clippy; and documentation/media validation. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for prerequisites and focused commands, and the
-[changelog](CHANGELOG.md) for the reviewed 0.1.1 fixes.
+[changelog](CHANGELOG.md) for changes in each version.
 
 Native tests inspect the actual panel, hosting view, editor focus, accessibility
 and rendered top pixels on a Mac with a desktop display. Tests that need a

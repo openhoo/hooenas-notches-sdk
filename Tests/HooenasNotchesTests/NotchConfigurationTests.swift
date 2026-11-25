@@ -41,4 +41,38 @@ final class NotchConfigurationTests: XCTestCase {
         )
         XCTAssertEqual(config.accommodating(cameraHousingWidth: 200, safeAreaHeight: 32), config)
     }
+
+    func testOversizedGeometryFitsBoundedPreviewAndKeepsContentSpace() {
+        let fitted = NotchConfiguration(
+            collapsedSize: CGSize(width: 500, height: 300),
+            expandedSize: CGSize(width: 5_000, height: 2_000),
+            contentInsets: NotchContentInsets(top: 100, leading: 1_000, bottom: 100, trailing: 500)
+        ).fitting(in: CGSize(width: 300, height: 100), cameraHousingWidth: 170, safeAreaHeight: 38)
+
+        XCTAssertEqual(fitted.collapsedSize, CGSize(width: 300, height: 100))
+        XCTAssertEqual(fitted.expandedSize, CGSize(width: 300, height: 100))
+        XCTAssertEqual(fitted.contentInsets.top, 76)
+        XCTAssertEqual(fitted.expandedContentSize.width, 44, accuracy: 0.001)
+        XCTAssertEqual(fitted.expandedContentSize.height, 24)
+    }
+
+    func testFitDoesNotExposeContentInsideCameraWhenSpaceIsLimited() {
+        let configuration = NotchConfiguration(contentInsets: NotchContentInsets(top: 0, bottom: 20))
+        let fitted = configuration.fitting(
+            in: CGSize(width: 250, height: 60), cameraHousingWidth: 160, safeAreaHeight: 38)
+        XCTAssertEqual(fitted.collapsedSize, CGSize(width: 250, height: 38))
+        XCTAssertEqual(fitted.contentInsets.top, 50)
+        XCTAssertEqual(fitted.expandedContentSize.height, 10)
+        XCTAssertEqual(
+            fitted.fitting(in: fitted.expandedSize, cameraHousingWidth: 160, safeAreaHeight: 38), fitted)
+    }
+
+    func testFitPreservesComfortableGeometryAndToleratesZeroOrUnknownBounds() {
+        let original = NotchConfiguration()
+        XCTAssertEqual(original.fitting(in: CGSize(width: CGFloat.infinity, height: CGFloat.nan)), original)
+        let hidden = original.fitting(in: .zero)
+        XCTAssertEqual(hidden.collapsedSize, .zero)
+        XCTAssertEqual(hidden.expandedSize, .zero)
+        XCTAssertEqual(hidden.expandedContentSize, .zero)
+    }
 }

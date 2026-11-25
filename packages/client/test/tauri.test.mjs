@@ -98,6 +98,28 @@ test("startup timeout detaches and kills a child whose spawn resolves late", asy
   assert.equal(fake.kills, 1);
 });
 
+test("an early ready event does not cancel the deadline for obtaining the child handle", async () => {
+  const fake = sidecar();
+  let finishSpawn;
+  fake.command.spawn = () => {
+    fake.command.stdout.emit("data", '{"event":"ready","protocolVersion":1}');
+    return new Promise((resolve) => {
+      finishSpawn = resolve;
+    });
+  };
+  // A late reply must still clean up the child, never reopen the timed-out session.
+  const safety = setTimeout(() => finishSpawn(fake.child), 250);
+  try {
+    await assert.rejects(createTauriNotch({ timeoutMs: 15 }), { code: "ready_timeout" });
+    fake.assertDetached();
+    finishSpawn(fake.child);
+    await tick();
+    assert.equal(fake.kills, 1);
+  } finally {
+    clearTimeout(safety);
+  }
+});
+
 test("a process that announces ready then exits before spawn resolves is rejected", async () => {
   const fake = sidecar();
   fake.command.spawn = async () => {

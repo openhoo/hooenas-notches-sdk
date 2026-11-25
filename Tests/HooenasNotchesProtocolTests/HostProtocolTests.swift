@@ -34,6 +34,34 @@ final class HostProtocolTests: XCTestCase {
         XCTAssertTrue(session.visible)
     }
 
+    func testExpandedSizeCanBeUpdatedPreservedAndReset() throws {
+        var session = HostSession()
+        let initial = HostNotchSize(width: 480, height: 275)
+        let result = try session.apply(
+            decode(#"{"id":"show","command":"show","state":{"expandedSize":{"width":480,"height":275}}}"#))
+        XCTAssertEqual(result.state?.expandedSize, initial)
+        XCTAssertEqual(HostEvent.ready.capabilities, ["expanded-size"])
+        try session.apply(decode(#"{"id":"ordinary","command":"update","state":{"title":"A new title"}}"#))
+        XCTAssertEqual(session.state.expandedSize, initial)
+        try session.apply(decode(#"{"id":"reset","command":"update","state":{"expandedSize":null}}"#))
+        XCTAssertNil(session.state.expandedSize)
+        XCTAssertEqual(session.state.title, "A new title")
+    }
+
+    func testInvalidExpandedSizeLeavesPreviousStateIntact() throws {
+        var session = HostSession()
+        try session.apply(
+            .init(id: "show", command: .show, state: .init(expandedSize: HostNotchSize(width: 500, height: 220))))
+        let before = session.state
+        for size in [HostNotchSize(width: .infinity, height: 220), HostNotchSize(width: 500, height: 139)] {
+            let patch = HostNotchStatePatch(title: "Should not persist", expandedSize: size)
+            XCTAssertThrowsError(try session.apply(.init(id: "resize", command: .update, state: patch))) { error in
+                XCTAssertEqual((error as? HostProtocolError)?.code, "invalid_state")
+            }
+            XCTAssertEqual(session.state, before)
+        }
+    }
+
     func testUpdateDoesNotDisplayHiddenPanel() throws {
         var session = HostSession()
         try session.apply(.init(id: "configure", command: .update, state: .init(style: .glass, title: "Configured")))
@@ -90,12 +118,40 @@ final class HostProtocolTests: XCTestCase {
         XCTAssertThrowsError(try decode(#"{"id":"3","command":"show","state":{"style":"typo"}}"#))
     }
 
+    func testEditingASwiftPatchEncodesBothAssignmentsAndExplicitResets() throws {
+        var patch = HostNotchStatePatch()
+        patch.progress = 0.5
+        patch.expandedSize = .init(width: 400, height: 200)
+        let assigned = try JSONDecoder().decode(HostNotchStatePatch.self, from: JSONEncoder().encode(patch))
+        var state = try HostNotchState().applying(assigned)
+        XCTAssertEqual(state.progress, 0.5)
+        XCTAssertEqual(state.expandedSize, .init(width: 400, height: 200))
+        patch.progress = nil
+        patch.expandedSize = nil
+        let reset = try JSONDecoder().decode(HostNotchStatePatch.self, from: JSONEncoder().encode(patch))
+        state = try state.applying(reset)
+        XCTAssertNil(state.progress)
+        XCTAssertNil(state.expandedSize)
+    }
+
+    func testExplicitNullCannotSilentlyApplyHalfOfAPatch() throws {
+        var session = HostSession()
+        for key in ["style", "motion", "expanded", "title", "subtitle", "activity", "actions"] {
+            let json = #"{"id":"bad","command":"show","state":{"progress":0.8,"\#(key)":null}}"#
+            XCTAssertThrowsError(try session.apply(decode(json)), key)
+            XCTAssertFalse(session.visible)
+            XCTAssertNil(session.state.progress)
+        }
+        XCTAssertThrowsError(try decode(#"{"id":"bad","command":"hide","state":null}"#))
+    }
+
     func testFullStateEncodesNullProgressAndEmptyActions() throws {
         let event = HostEvent.result(id: "1", state: .init(), visible: false)
         let data = try JSONEncoder().encode(event)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let state = try XCTUnwrap(object["state"] as? [String: Any])
         XCTAssertTrue(state["progress"] is NSNull)
+        XCTAssertTrue(state["expandedSize"] is NSNull)
         XCTAssertEqual((state["actions"] as? [Any])?.count, 0)
         XCTAssertEqual(state["motion"] as? String, "spring")
     }

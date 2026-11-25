@@ -104,35 +104,117 @@ public struct NotchConfiguration: Equatable, Sendable {
 
     public func size(expanded: Bool) -> CGSize { expanded ? expandedSize : collapsedSize }
 
+    /// The expanded area available to your content, in points, after applying the insets.
+    public var expandedContentSize: CGSize {
+        CGSize(
+            width: max(0, expandedSize.width - contentInsets.leading - contentInsets.trailing),
+            height: max(0, expandedSize.height - contentInsets.top - contentInsets.bottom)
+        )
+    }
+
+    /// Fit the requested geometry to a preview, screen or other bounded region.
+    /// With camera metrics, reserve space around the housing before applying the bounds.
+    /// Insets shrink when needed to retain content space, keeping camera clearance first.
+    public func fitting(
+        in maximumSize: CGSize,
+        cameraHousingWidth: CGFloat = 0,
+        safeAreaHeight: CGFloat = 0
+    ) -> Self {
+        let adjusted = accommodating(cameraHousingWidth: cameraHousingWidth, safeAreaHeight: safeAreaHeight)
+        func fit(_ size: CGSize) -> CGSize {
+            CGSize(
+                width: maximumSize.width.isFinite ? min(size.width, max(0, maximumSize.width)) : size.width,
+                height: maximumSize.height.isFinite ? min(size.height, max(0, maximumSize.height)) : size.height
+            )
+        }
+        let closed = fit(adjusted.collapsedSize)
+        let open = fit(adjusted.expandedSize)
+        let insets = adjusted.contentInsets
+
+        let horizontalBudget = max(0, open.width - 44)
+        var leading = insets.leading
+        var trailing = insets.trailing
+        if leading > horizontalBudget || trailing > horizontalBudget - leading {
+            let scale = max(leading, trailing)
+            let fraction = (leading / scale) / (leading / scale + trailing / scale)
+            leading = horizontalBudget * fraction
+            trailing = horizontalBudget - leading
+        }
+
+        let cameraClearance = automaticallyPadsCamera ? min(open.height, Self.cameraClearance(safeAreaHeight)) : 0
+        let verticalBudget = open.height - min(24, open.height - cameraClearance)
+        let top = min(verticalBudget, insets.top)
+        let bottom = min(verticalBudget - top, insets.bottom)
+        return Self(
+            copying: adjusted, collapsedSize: closed, expandedSize: open,
+            contentInsets: NotchContentInsets(top: top, leading: leading, bottom: bottom, trailing: trailing)
+        )
+    }
+
     /// Leave room for compact leading/trailing controls around a physical camera housing.
     /// The extra 56 points on each side keep the default padded content out of the camera area.
     public func accommodating(cameraHousingWidth: CGFloat, safeAreaHeight: CGFloat) -> Self {
         let cameraWidth = cameraHousingWidth.isFinite ? max(0, cameraHousingWidth) : 0
         let safeHeight = safeAreaHeight.isFinite ? max(0, safeAreaHeight) : 0
         let topInset =
-            automaticallyPadsCamera && safeHeight > 0
-            ? max(contentInsets.top, safeHeight + 12)
-            : contentInsets.top
+            automaticallyPadsCamera ? max(contentInsets.top, Self.cameraClearance(safeHeight)) : contentInsets.top
+        let closed = CGSize(
+            width: cameraWidth > 0 ? max(collapsedSize.width, cameraWidth + 112) : collapsedSize.width,
+            height: max(collapsedSize.height, safeHeight)
+        )
         return Self(
-            collapsedSize: CGSize(
-                width: cameraWidth > 0 ? max(collapsedSize.width, cameraWidth + 112) : collapsedSize.width,
-                height: max(collapsedSize.height, safeHeight)
+            copying: self, collapsedSize: closed,
+            expandedSize: CGSize(
+                width: max(expandedSize.width, closed.width),
+                height: max(expandedSize.height, closed.height)
             ),
-            expandedSize: expandedSize,
-            collapsedTopRadius: collapsedTopRadius,
-            collapsedBottomRadius: collapsedBottomRadius,
-            expandedTopRadius: expandedTopRadius,
-            expandedBottomRadius: expandedBottomRadius,
             contentInsets: NotchContentInsets(
                 top: topInset, leading: contentInsets.leading,
                 bottom: contentInsets.bottom, trailing: contentInsets.trailing
-            ),
-            automaticallyPadsCamera: automaticallyPadsCamera
+            )
         )
+    }
+
+    private init(copying source: Self, collapsedSize: CGSize, expandedSize: CGSize, contentInsets: NotchContentInsets) {
+        self.collapsedSize = collapsedSize
+        self.expandedSize = expandedSize
+        collapsedTopRadius = source.collapsedTopRadius
+        collapsedBottomRadius = source.collapsedBottomRadius
+        expandedTopRadius = source.expandedTopRadius
+        expandedBottomRadius = source.expandedBottomRadius
+        self.contentInsets = contentInsets
+        automaticallyPadsCamera = source.automaticallyPadsCamera
+    }
+
+    private static func cameraClearance(_ height: CGFloat) -> CGFloat {
+        height.isFinite && height > 0 ? height + 12 : 0
     }
 
     private static func valid(_ value: CGFloat, fallback: CGFloat, minimum: CGFloat) -> CGFloat {
         value.isFinite ? max(minimum, value) : fallback
+    }
+}
+
+/// Localizable descriptions for the built-in disclosure and its accessibility state.
+public struct NotchAccessibilityLabels: Equatable, Sendable {
+    public var expandHelp: String
+    public var expandHint: String
+    public var collapse: String
+    public var expanded: String
+    public var collapsed: String
+
+    public init(
+        expandHelp: String = "Expand notch",
+        expandHint: String = "Opens the notch controls",
+        collapse: String = "Collapse notch",
+        expanded: String = "Expanded",
+        collapsed: String = "Collapsed"
+    ) {
+        self.expandHelp = expandHelp
+        self.expandHint = expandHint
+        self.collapse = collapse
+        self.expanded = expanded
+        self.collapsed = collapsed
     }
 }
 

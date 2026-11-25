@@ -46,7 +46,9 @@ def main():
                 return event
 
     try:
-        assert receive() == {"event": "ready", "protocolVersion": 1}
+        ready = receive()
+        assert ready["event"] == "ready" and ready["protocolVersion"] == 1
+        assert "expanded-size" in ready["capabilities"]
         shown = send(
             {
                 "id": "show",

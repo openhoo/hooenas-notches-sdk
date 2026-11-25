@@ -1,8 +1,20 @@
+import SwiftUI
 import XCTest
 
 @testable import HooenasNotches
 
 final class NotchOverlayGeometryTests: XCTestCase {
+    @MainActor
+    func testCompactWingsReserveCameraClearanceAndFitNarrowSurfaces() {
+        let roomy = NotchCompactWings<Color, Color>.widths(in: 280, cameraHousingWidth: 172)
+        XCTAssertEqual(roomy.gap, 184)
+        XCTAssertEqual(roomy.wing, 48)
+
+        let narrow = NotchCompactWings<Color, Color>.widths(in: 100, cameraHousingWidth: 172)
+        XCTAssertEqual(narrow.gap, 100)
+        XCTAssertEqual(narrow.wing, 0)
+    }
+
     func testContourRadiiStayInsideShallowBounds() {
         let bounds = CGRect(x: 17, y: 23, width: 320, height: 24)
         let rendered = ContourNotchShape(top: 200, bottom: 200).path(in: bounds).boundingRect
@@ -68,6 +80,26 @@ final class NotchOverlayGeometryTests: XCTestCase {
         XCTAssertTrue(path.contains(CGPoint(x: bounds.maxX - 28, y: bounds.minY + 0.5)))
         XCTAssertFalse(path.contains(CGPoint(x: bounds.minX + 2, y: bounds.minY + 12)))
         XCTAssertFalse(path.contains(CGPoint(x: bounds.maxX - 2, y: bounds.minY + 12)))
+    }
+
+    func testCollapseButtonStaysInsideCustomAndFittedSilhouettes() {
+        let button = NotchSilhouette.collapseButtonSize
+        let cases: [(NotchSilhouette, CGSize)] = [
+            (NotchSilhouette(style: .contour, top: 22, bottom: 28), CGSize(width: 440, height: 290)),
+            (NotchSilhouette(style: .glass, top: 200, bottom: 200), CGSize(width: 135, height: 82)),
+            (NotchSilhouette(style: .capsule, top: 22, bottom: 100), CGSize(width: 300, height: 100)),
+        ]
+
+        for (silhouette, size) in cases {
+            let path = silhouette.path(in: CGRect(origin: .zero, size: size))
+            let insets = silhouette.collapseButtonInsets(in: size)
+            let right = size.width - insets.trailing
+            for x in [right - button, right] {
+                for y in [insets.top, insets.top + button] {
+                    XCTAssertTrue(path.contains(CGPoint(x: x, y: y)), "\(silhouette.style) clips the collapse control")
+                }
+            }
+        }
     }
 
     func testCapsuleRoundedCornerIsNotAnInvisibleHitTarget() {

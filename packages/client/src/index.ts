@@ -6,6 +6,17 @@ export interface NotchAction {
   id: string;
   label: string;
 }
+/** Requested expanded width and height in macOS points. */
+export interface NotchSize {
+  width: number;
+  height: number;
+}
+export const notchSizeBounds = Object.freeze({
+  minWidth: 280,
+  maxWidth: 1_600,
+  minHeight: 140,
+  maxHeight: 1_000,
+});
 export interface NotchState {
   style: NotchStyle;
   motion: NotchMotion;
@@ -15,8 +26,10 @@ export interface NotchState {
   activity: NotchActivity;
   progress: number | null;
   actions: NotchAction[];
+  /** Null uses the default size. Absent on older protocol v1 hosts. */
+  expandedSize?: NotchSize | null;
 }
-/** Omitted values keep their current value. Explicit `progress: null` clears it. */
+/** Omitted values stay unchanged. Explicit null resets `progress` or `expandedSize`. */
 export type NotchPatch = Partial<NotchState>;
 export interface NotchSnapshot {
   state: NotchState;
@@ -29,7 +42,7 @@ export interface NotchResult extends NotchSnapshot {
   ok: true;
 }
 export type NotchEvent =
-  | { event: "ready"; protocolVersion: 1 }
+  | { event: "ready"; protocolVersion: 1; capabilities?: string[] }
   | NotchResult
   | { event: "error"; id?: string; code: string; message: string }
   | { event: "action"; actionId: string }
@@ -83,10 +96,14 @@ interface Pending {
 /** Correlated requests, readiness, bounded framing, and native UI events. */
 export class NotchClient {
   readonly ready: Promise<void>;
+  /** Resolves with the reason when the session ends, even when no request is pending. */
+  readonly closed: Promise<Error>;
+  private closedResolve!: (reason: Error) => void;
   private readyResolve!: () => void;
   private readyReject!: (error: Error) => void;
   private readyTimer: ReturnType<typeof setTimeout>;
   private readyReceived = false;
+  private hostCapabilities = new Set<string>();
   private quitTimer: ReturnType<typeof setTimeout> | undefined;
   private buffer = "";
   private sequence = 0;
@@ -111,6 +128,9 @@ export class NotchClient {
     ) {
       throw new RangeError(`timeoutMs must be between 1 and ${maximumTimeoutMs}`);
     }
+    this.closed = new Promise((resolve) => {
+      this.closedResolve = resolve;
+    });
     this.ready = new Promise((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;
@@ -153,6 +173,11 @@ export class NotchClient {
     return () => {
       this.listeners.delete(listener);
     };
+  }
+
+  /** Feature names announced by the host; empty until `ready` resolves. */
+  get capabilities(): readonly string[] {
+    return [...this.hostCapabilities];
   }
 
   onAction(listener: (actionId: string) => unknown): Unsubscribe {
@@ -202,6 +227,20 @@ export class NotchClient {
         "invalid_state",
         "progress must be null or a finite number between 0 and 1",
       );
+    }
+    if (state?.expandedSize !== undefined) {
+      if (!this.hostCapabilities.has("expanded-size")) {
+        throw new NotchError(
+          "unsupported_feature",
+          "Native notch host does not support expandedSize",
+        );
+      }
+      if (state.expandedSize !== null && !validSize(state.expandedSize)) {
+        throw new NotchError(
+          "invalid_state",
+          "expandedSize must contain a width of 280–1600 and a height of 140–1000",
+        );
+      }
     }
     const id = `hn-${++this.sequence}`;
     const line = JSON.stringify(state === undefined ? { id, command } : { id, command, state });
@@ -258,6 +297,7 @@ export class NotchClient {
     if (event.event === "ready") {
       if (this.readyReceived) throw new Error("Native notch host sent ready more than once");
       this.readyReceived = true;
+      this.hostCapabilities = new Set(event.capabilities);
       clearTimeout(this.readyTimer);
       this.readyResolve();
     } else if (!this.readyReceived) {
@@ -274,7 +314,9 @@ export class NotchClient {
         else request.reject(new NotchError(event.code, event.message));
       }
     }
-    for (const listener of this.listeners) {
+    // New subscriptions start with the next event, even if a callback subscribes again.
+    for (const listener of [...this.listeners]) {
+      if (!this.listeners.has(listener)) continue;
       try {
         void Promise.resolve(listener(event)).catch((error) => this.reportListenerError(error));
       } catch (error) {
@@ -300,6 +342,7 @@ export class NotchClient {
   private fail(error: Error): void {
     if (this.ended) return;
     this.ended = error;
+    this.closedResolve(error);
     this.buffer = "";
     clearTimeout(this.readyTimer);
     clearTimeout(this.quitTimer);
@@ -364,6 +407,18 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function validSize(value: unknown): value is NotchSize {
+  return (
+    record(value) &&
+    typeof value.width === "number" &&
+    value.width >= notchSizeBounds.minWidth &&
+    value.width <= notchSizeBounds.maxWidth &&
+    typeof value.height === "number" &&
+    value.height >= notchSizeBounds.minHeight &&
+    value.height <= notchSizeBounds.maxHeight
+  );
+}
+
 function validState(value: unknown): value is NotchState {
   return (
     record(value) &&
@@ -382,6 +437,9 @@ function validState(value: unknown): value is NotchState {
         Number.isFinite(value.progress) &&
         value.progress >= 0 &&
         value.progress <= 1)) &&
+    (value.expandedSize === undefined ||
+      value.expandedSize === null ||
+      validSize(value.expandedSize)) &&
     Array.isArray(value.actions) &&
     value.actions.length <= 4 &&
     value.actions.every(
@@ -408,8 +466,16 @@ function parseEvent(value: unknown): NotchEvent {
   if (record(value)) {
     switch (value.event) {
       case "ready":
-        if (value.protocolVersion === 1) return value as unknown as NotchEvent;
-        throw new Error(`Unsupported notch protocol version ${String(value.protocolVersion)}`);
+        if (value.protocolVersion !== 1) {
+          throw new Error(`Unsupported notch protocol version ${String(value.protocolVersion)}`);
+        }
+        if (
+          value.capabilities === undefined ||
+          (Array.isArray(value.capabilities) &&
+            value.capabilities.every((capability) => typeof capability === "string"))
+        )
+          return value as unknown as NotchEvent;
+        break;
       case "result":
         if (
           validIdentifier(value.id, 128) &&

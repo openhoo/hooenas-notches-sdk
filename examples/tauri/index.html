@@ -30,12 +30,22 @@
             <option value="snappy">Snappy</option>
           </select></label
         >
+        <label>
+          Expanded size
+          <select id="size">
+            <option value="default">Default</option>
+            <option value="compact">Compact (360 × 170)</option>
+            <option value="wide">Wide (760 × 300)</option>
+            <option value="custom" id="custom-size" disabled hidden>Custom</option>
+          </select>
+        </label>
         <div class="buttons">
           <button id="show">Show notch</button><button id="expand">Expand</button
           ><button id="progress">Run progress</button><button id="hide">Hide</button>
         </div>
       </section>
       <p id="status" role="status" aria-live="polite">Connecting to the native host…</p>
+      <button id="reconnect" hidden>Reconnect to native host</button>
       <pre id="snapshot" aria-label="Native state"></pre>
     </main>
     <script type="module" src="/src/main.ts"></script>

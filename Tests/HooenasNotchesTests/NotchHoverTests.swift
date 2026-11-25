@@ -6,6 +6,34 @@ import XCTest
 
 @MainActor
 final class NotchHoverTests: XCTestCase {
+    func testPendingHoverDoesNotTakeOwnershipOfAnExternalOpen() throws {
+        let fixture = try HoverFixture()
+        defer { fixture.close() }
+        try fixture.deliverHover(true)
+        // A shortcut or a menu command explicitly opens the notch during the hover delay.
+        fixture.model.expanded = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        XCTAssertTrue(fixture.panel.makeFirstResponder(fixture.hosting))
+
+        try fixture.hoverOutside()
+
+        XCTAssertTrue(fixture.model.expanded, "Leaving the notch must not undo the explicit open")
+    }
+
+    func testPendingHoverExitDoesNotCloseAReopenedNotch() throws {
+        let fixture = try HoverFixture()
+        defer { fixture.close() }
+        try fixture.hoverInside()
+        XCTAssertTrue(fixture.panel.makeFirstResponder(fixture.hosting))
+        try fixture.deliverHover(false)
+        fixture.model.expanded = false
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        fixture.model.expanded = true
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+
+        XCTAssertTrue(fixture.model.expanded, "A delayed exit from an earlier opening must not close the new one")
+    }
+
     func testHoverExitKeepsActiveTextEditorOpen() throws {
         let fixture = try HoverFixture()
         defer { fixture.close() }
@@ -98,7 +126,7 @@ private final class HoverFixture {
         panel.close()
     }
 
-    private func deliverHover(_ inside: Bool) throws {
+    func deliverHover(_ inside: Bool) throws {
         // XCTest may add its own tracking area before SwiftUI's area.
         let area = try XCTUnwrap(hosting.trackingAreas.first { ($0.owner as? NSView) === hosting })
         let trackingNumber = Int(bitPattern: Unmanaged.passUnretained(area).toOpaque())

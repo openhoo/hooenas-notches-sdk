@@ -27,6 +27,24 @@ public struct HostNotchAction: Codable, Equatable, Sendable {
     }
 }
 
+/// Requested expanded surface dimensions, in macOS points. The renderer also fits the display.
+public struct HostNotchSize: Codable, Equatable, Sendable {
+    public static let widthRange: ClosedRange<Double> = 280...1_600
+    public static let heightRange: ClosedRange<Double> = 140...1_000
+
+    public var width: Double
+    public var height: Double
+
+    public init(width: Double, height: Double) {
+        self.width = width
+        self.height = height
+    }
+
+    fileprivate var isValid: Bool {
+        width.isFinite && height.isFinite && Self.widthRange.contains(width) && Self.heightRange.contains(height)
+    }
+}
+
 /// The complete state returned by the host. Progress is always encoded, including null.
 public struct HostNotchState: Codable, Equatable, Sendable {
     public var style: HostNotchStyle
@@ -37,6 +55,7 @@ public struct HostNotchState: Codable, Equatable, Sendable {
     public var activity: HostNotchActivity
     public var progress: Double?
     public var actions: [HostNotchAction]
+    public var expandedSize: HostNotchSize?
 
     public init(
         style: HostNotchStyle = .contour,
@@ -46,7 +65,8 @@ public struct HostNotchState: Codable, Equatable, Sendable {
         subtitle: String = "Bereit, wenn du es bist.",
         activity: HostNotchActivity = .idle,
         progress: Double? = nil,
-        actions: [HostNotchAction] = []
+        actions: [HostNotchAction] = [],
+        expandedSize: HostNotchSize? = nil
     ) {
         self.style = style
         self.motion = motion
@@ -56,10 +76,11 @@ public struct HostNotchState: Codable, Equatable, Sendable {
         self.activity = activity
         self.progress = progress
         self.actions = actions
+        self.expandedSize = expandedSize
     }
 
     private enum CodingKeys: String, CodingKey {
-        case style, motion, expanded, title, subtitle, activity, progress, actions
+        case style, motion, expanded, title, subtitle, activity, progress, actions, expandedSize
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -72,6 +93,7 @@ public struct HostNotchState: Codable, Equatable, Sendable {
         try container.encode(activity, forKey: .activity)
         try container.encode(progress, forKey: .progress)
         try container.encode(actions, forKey: .actions)
+        try container.encode(expandedSize, forKey: .expandedSize)
     }
 
     public func applying(_ patch: HostNotchStatePatch?) throws -> Self {
@@ -85,6 +107,7 @@ public struct HostNotchState: Codable, Equatable, Sendable {
         if let value = patch.activity { next.activity = value }
         if patch.hasProgress { next.progress = patch.progress }
         if let value = patch.actions { next.actions = value }
+        if patch.hasExpandedSize { next.expandedSize = patch.expandedSize }
         try next.validate()
         return next
     }
@@ -98,6 +121,10 @@ public struct HostNotchState: Codable, Equatable, Sendable {
         }
         if let progress, !progress.isFinite || !(0...1).contains(progress) {
             throw HostProtocolError("invalid_state", "progress must be null or a finite number between 0 and 1.")
+        }
+        if let expandedSize, !expandedSize.isValid {
+            throw HostProtocolError(
+                "invalid_state", "expandedSize must be null or contain width (280–1600) and height (140–1000).")
         }
         guard actions.count <= 4 else {
             throw HostProtocolError("invalid_state", "A notch supports at most four actions.")
@@ -130,7 +157,15 @@ public struct HostNotchState: Codable, Equatable, Sendable {
     }
 }
 
-/// Missing fields preserve the previous value. An explicit progress:null clears progress.
+extension KeyedDecodingContainer {
+    /// An omitted field leaves the state alone; a present field must have the requested type.
+    fileprivate func decodeIfIncluded<T: Decodable>(_ type: T.Type, forKey key: Key) throws -> T? {
+        guard contains(key) else { return nil }
+        return try decode(type, forKey: key)
+    }
+}
+
+/// Missing fields preserve the previous value. Explicit null resets progress or expandedSize.
 public struct HostNotchStatePatch: Codable, Equatable, Sendable {
     public var style: HostNotchStyle?
     public var motion: HostNotchMotion?
@@ -138,9 +173,15 @@ public struct HostNotchStatePatch: Codable, Equatable, Sendable {
     public var title: String?
     public var subtitle: String?
     public var activity: HostNotchActivity?
-    public var progress: Double?
+    public var progress: Double? {
+        didSet { hasProgress = true }
+    }
     public var hasProgress: Bool
     public var actions: [HostNotchAction]?
+    public var expandedSize: HostNotchSize? {
+        didSet { hasExpandedSize = true }
+    }
+    public var hasExpandedSize: Bool
 
     public init(
         style: HostNotchStyle? = nil,
@@ -151,7 +192,9 @@ public struct HostNotchStatePatch: Codable, Equatable, Sendable {
         activity: HostNotchActivity? = nil,
         progress: Double? = nil,
         clearProgress: Bool = false,
-        actions: [HostNotchAction]? = nil
+        actions: [HostNotchAction]? = nil,
+        expandedSize: HostNotchSize? = nil,
+        resetExpandedSize: Bool = false
     ) {
         self.style = style
         self.motion = motion
@@ -162,23 +205,27 @@ public struct HostNotchStatePatch: Codable, Equatable, Sendable {
         self.progress = progress
         self.hasProgress = progress != nil || clearProgress
         self.actions = actions
+        self.expandedSize = expandedSize
+        self.hasExpandedSize = expandedSize != nil || resetExpandedSize
     }
 
     private enum CodingKeys: String, CodingKey {
-        case style, motion, expanded, title, subtitle, activity, progress, actions
+        case style, motion, expanded, title, subtitle, activity, progress, actions, expandedSize
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        style = try container.decodeIfPresent(HostNotchStyle.self, forKey: .style)
-        motion = try container.decodeIfPresent(HostNotchMotion.self, forKey: .motion)
-        expanded = try container.decodeIfPresent(Bool.self, forKey: .expanded)
-        title = try container.decodeIfPresent(String.self, forKey: .title)
-        subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
-        activity = try container.decodeIfPresent(HostNotchActivity.self, forKey: .activity)
+        style = try container.decodeIfIncluded(HostNotchStyle.self, forKey: .style)
+        motion = try container.decodeIfIncluded(HostNotchMotion.self, forKey: .motion)
+        expanded = try container.decodeIfIncluded(Bool.self, forKey: .expanded)
+        title = try container.decodeIfIncluded(String.self, forKey: .title)
+        subtitle = try container.decodeIfIncluded(String.self, forKey: .subtitle)
+        activity = try container.decodeIfIncluded(HostNotchActivity.self, forKey: .activity)
         hasProgress = container.contains(.progress)
         progress = try container.decodeIfPresent(Double.self, forKey: .progress)
-        actions = try container.decodeIfPresent([HostNotchAction].self, forKey: .actions)
+        actions = try container.decodeIfIncluded([HostNotchAction].self, forKey: .actions)
+        hasExpandedSize = container.contains(.expandedSize)
+        expandedSize = try container.decodeIfPresent(HostNotchSize.self, forKey: .expandedSize)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -191,6 +238,7 @@ public struct HostNotchStatePatch: Codable, Equatable, Sendable {
         try container.encodeIfPresent(activity, forKey: .activity)
         if hasProgress { try container.encode(progress, forKey: .progress) }
         try container.encodeIfPresent(actions, forKey: .actions)
+        if hasExpandedSize { try container.encode(expandedSize, forKey: .expandedSize) }
     }
 }
 
@@ -203,6 +251,15 @@ public struct HostRequest: Codable, Equatable, Sendable {
         self.id = id
         self.command = command
         self.state = state
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, command, state }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        command = try container.decode(HostCommand.self, forKey: .command)
+        state = try container.decodeIfIncluded(HostNotchStatePatch.self, forKey: .state)
     }
 
     public func validate() throws {
@@ -239,6 +296,7 @@ public struct HostProtocolError: Error, LocalizedError, Equatable, Sendable {
 public struct HostEvent: Codable, Equatable, Sendable {
     public var event: String
     public var protocolVersion: Int?
+    public var capabilities: [String]?
     public var id: String?
     public var ok: Bool?
     public var state: HostNotchState?
@@ -247,7 +305,7 @@ public struct HostEvent: Codable, Equatable, Sendable {
     public var message: String?
     public var actionId: String?
 
-    public static var ready: Self { Self(event: "ready", protocolVersion: 1) }
+    public static var ready: Self { Self(event: "ready", protocolVersion: 1, capabilities: ["expanded-size"]) }
 
     public static func result(id: String, state: HostNotchState, visible: Bool) -> Self {
         Self(event: "result", id: id, ok: true, state: state, visible: visible)

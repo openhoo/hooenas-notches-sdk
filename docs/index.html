@@ -70,7 +70,8 @@
       .card h2 {
         margin-top: 0;
       }
-      img {
+      video {
+        display: block;
         width: 100%;
         height: auto;
         border-radius: 15px;
@@ -87,15 +88,16 @@
       <p class="eyebrow">Kleine Fläche. Gute Momente.</p>
       <h1>Dein Platz<br />am Bildschirmrand.</h1>
       <p>
-        Hooenas Notches ist eine native macOS-Utility für Fokus, Schnellnotizen und Uhr. Das SDK
-        stellt dieselben animierten SwiftUI- und AppKit-Komponenten für eigene Anwendungen bereit.
+        Hooenas Notches ist eine native macOS-App zum Zusammenstellen deiner eigenen Notch. Das SDK
+        stellt die animierten SwiftUI- und AppKit-Komponenten für eigene Anwendungen bereit.
       </p>
       <div class="grid">
         <section class="card">
           <h2>Die Utility</h2>
           <p>
-            Fokus-Timer, lokale Notizen und Uhr in Contour, Capsule oder Glass. Die App wird für den
-            Mac App Store vorbereitet und ist noch nicht im Store verfügbar.
+            Elf Werkzeuge für deinen Mac: Fokus, Notizen, Kalender, Dateiablage, Audio und mehr.
+            Stelle sie in der Live-Vorschau zusammen und passe Größe, Form und Ansicht an. Die App
+            wird für den Mac App Store vorbereitet.
           </p>
         </section>
         <section class="card">
@@ -108,8 +110,23 @@
         </section>
       </div>
       <h2>Contour</h2>
-      <p>SDK-Beispiel mit eigenen Kurven und Federwerten.</p>
-      <img src="showcase/contour.gif" alt="Animierte Contour-Notch mit Beispielinhalt" />
+      <p id="contour-description">
+        Die Notch klappt am oberen Bildschirmrand auf und zeigt drei Arbeitsbereiche. Spiele die
+        fünfsekündige Vorschau ab, um die Bewegung zu sehen.
+      </p>
+      <video
+        controls
+        playsinline
+        preload="none"
+        width="840"
+        height="532"
+        poster="showcase/contour-poster.jpg"
+        src="showcase/contour.mp4"
+        aria-label="Contour-Vorschau"
+        aria-describedby="contour-description"
+      >
+        <a href="showcase/contour.mp4">Contour-Vorschau öffnen</a>
+      </video>
       <p>
         <a href="privacy.html">Datenschutz der App</a> ·
         <a href="support.html">Hilfe und Kontakt</a>

@@ -115,6 +115,25 @@ test("forwards native actions and state while allowing unsubscribe", async () =>
   await h.client.dispose();
 });
 
+test("a listener that subscribes again receives each action only once", async () => {
+  const h = harness();
+  h.ready();
+  const actions = [];
+  let off;
+  const listen = (id) => {
+    actions.push(id);
+    if (actions.length === 1) {
+      off();
+      off = h.client.onAction(listen);
+    }
+  };
+  off = h.client.onAction(listen);
+  h.message({ event: "action", actionId: "once" });
+  h.message({ event: "action", actionId: "again" });
+  assert.deepEqual(actions, ["once", "again"]);
+  await h.client.dispose();
+});
+
 test("preserves explicit null in a progress patch and surfaces host validation", async () => {
   const h = harness();
   h.ready();
@@ -127,6 +146,40 @@ test("preserves explicit null in a progress patch and surfaces host validation",
   await h.client.dispose();
 });
 
+test("negotiates expanded size without disrupting older hosts", async () => {
+  const legacy = harness();
+  legacy.ready();
+  await assert.rejects(legacy.client.show({ expandedSize: { width: 480, height: 270 } }), {
+    code: "unsupported_feature",
+  });
+  assert.equal(legacy.writes.length, 0);
+  await legacy.client.dispose();
+
+  const h = harness();
+  h.message({ event: "ready", protocolVersion: 1, capabilities: ["expanded-size"] });
+  await h.client.ready;
+  assert.deepEqual(h.client.capabilities, ["expanded-size"]);
+  await assert.rejects(h.client.update({ expandedSize: { width: Infinity, height: 270 } }), {
+    code: "invalid_state",
+  });
+  assert.equal(h.writes.length, 0);
+  for (const expandedSize of [{ width: 480, height: 270 }, null]) {
+    const pending = h.client.update({ expandedSize });
+    await tick();
+    const sent = JSON.parse(h.writes.at(-1));
+    assert.deepEqual(sent.state.expandedSize, expandedSize);
+    h.message({
+      event: "result",
+      id: sent.id,
+      ok: true,
+      visible: true,
+      state: { ...state, expandedSize },
+    });
+    assert.deepEqual((await pending).state.expandedSize, expandedSize);
+  }
+  await h.client.dispose();
+});
+
 test("rejects pending requests when the native host exits", async () => {
   const h = harness();
   h.ready();
@@ -136,6 +189,16 @@ test("rejects pending requests when the native host exits", async () => {
   await assert.rejects(request, { code: "host_closed" });
   await assert.rejects(h.client.show(), { code: "host_closed" });
   await h.client.dispose();
+});
+
+test("idle clients can observe the reason for an unexpected disconnect", async () => {
+  const h = harness();
+  h.ready();
+  await h.client.ready;
+  h.exit();
+  assert.equal((await h.client.closed).code, "host_closed");
+  await h.client.dispose();
+  assert.equal((await h.client.closed).code, "host_closed");
 });
 
 test("rejects unsupported versions and malformed host records", async () => {

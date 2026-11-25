@@ -4,6 +4,15 @@ import SwiftUI
 
 /// Pure placement helpers, also useful to hosts that provide their own window.
 public enum NotchOverlayGeometry {
+    // Transparent room for the shadow and compact hover transform. On a very
+    // small display, spend that space on the notch before reserving the margins.
+    static func canvasMargins(in bounds: CGSize) -> CGSize {
+        CGSize(
+            width: min(80, max(0, bounds.width - 160)),
+            height: min(64, max(0, bounds.height - 80))
+        )
+    }
+
     public static func panelFrame(screenFrame: CGRect, canvasSize: CGSize, topInset: CGFloat = 0) -> CGRect {
         CGRect(
             x: screenFrame.midX - canvasSize.width / 2,
@@ -47,6 +56,7 @@ public struct NotchPanelLayoutSnapshot: Sendable {
 @MainActor
 public final class NotchPanelController {
     public private(set) var isVisible = false
+    /// The fitted configuration currently in use, including display and camera constraints.
     public private(set) var configuration = NotchConfiguration()
     public private(set) var screen: NSScreen?
 
@@ -69,7 +79,38 @@ public final class NotchPanelController {
     private var globalMonitor: Any?
     private var requestedConfiguration = NotchConfiguration()
 
-    public init() {}
+    private let mouseLocation: @MainActor () -> CGPoint
+
+    public convenience init() {
+        self.init(mouseLocation: { NSEvent.mouseLocation })
+    }
+
+    init(mouseLocation: @escaping @MainActor () -> CGPoint) {
+        self.mouseLocation = mouseLocation
+    }
+
+    /// Present a complete notch with one binding for the view and the panel's hit region.
+    /// Call again with new settings to change geometry or appearance while visible.
+    public func show<Compact: View, Expanded: View>(
+        configuration: NotchConfiguration = NotchConfiguration(),
+        style: NotchStyle = .contour,
+        screen: NSScreen? = nil,
+        isExpanded: Binding<Bool>,
+        motion: NotchMotion = .spring,
+        hoverOpens: Bool = true,
+        accessibilityLabels: NotchAccessibilityLabels = NotchAccessibilityLabels(),
+        @ViewBuilder compact: () -> Compact,
+        @ViewBuilder expanded: () -> Expanded
+    ) {
+        show(
+            content: HooenasNotch(
+                style: style, isExpanded: isExpanded, configuration: configuration,
+                motion: motion, hoverOpens: hoverOpens, accessibilityLabels: accessibilityLabels,
+                compact: compact, expanded: expanded
+            ),
+            configuration: configuration, style: style, screen: screen, isExpanded: { isExpanded.wrappedValue }
+        )
+    }
 
     /// Call again to replace a displayed notch's content, style or configuration.
     /// The expansion closure must report the same binding passed to `HooenasNotch`.
@@ -111,9 +152,9 @@ public final class NotchPanelController {
         reposition()
         guard panel != nil else { return }
         isVisible = true
+        beginTracking()
         updateHitTesting()
         panel?.orderFrontRegardless()
-        beginTracking()
     }
 
     /// Refresh a visible overlay after changing its style, content or dimensions.
@@ -125,6 +166,14 @@ public final class NotchPanelController {
         isExpanded: @escaping @MainActor () -> Bool = { false }
     ) {
         show(content: content, configuration: configuration, style: style, screen: screen, isExpanded: isExpanded)
+    }
+
+    /// Move keyboard focus to an already visible panel, for an explicit user action.
+    @discardableResult
+    public func focus() -> Bool {
+        guard isVisible, let panel, panel.isVisible else { return false }
+        panel.makeKey()
+        return panel.isKeyWindow
     }
 
     /// Remove the overlay and all event monitors. A later `show` reuses this controller.
@@ -139,6 +188,12 @@ public final class NotchPanelController {
         globalMonitor = nil
         displayObserver = nil
         panel?.orderOut(nil)
+        // AppKit may retain a detached hosting view. Clear its SwiftUI root so
+        // a hidden notch does not keep client models or editor state alive.
+        if let hosting = panel?.contentView as? PassthroughHostingView {
+            hosting.rootView = AnyView(EmptyView())
+            hosting.layoutSubtreeIfNeeded()
+        }
         panel?.contentView = nil
         panel?.close()
         panel = nil
@@ -171,16 +226,20 @@ public final class NotchPanelController {
         } else {
             cameraWidth = 0
         }
-        configuration = requestedConfiguration.accommodating(
+        let displaySize = CGSize(width: screen.frame.width, height: max(0, screen.frame.height - style.topInset))
+        let margins = NotchOverlayGeometry.canvasMargins(in: displaySize)
+        configuration = requestedConfiguration.fitting(
+            in: CGSize(width: displaySize.width - margins.width, height: displaySize.height - margins.height),
             cameraHousingWidth: cameraWidth,
             safeAreaHeight: screen.safeAreaInsets.top
         )
         let canvas = CGSize(
-            width: max(configuration.expandedSize.width, configuration.collapsedSize.width) + 80,
-            height: max(configuration.expandedSize.height, configuration.collapsedSize.height) + 64
+            width: configuration.expandedSize.width + margins.width,
+            height: configuration.expandedSize.height + margins.height
         )
         let rootView = AnyView(
             self.content.environment(\.notchScreenConfiguration, self.configuration)
+                .environment(\.notchCameraHousingWidth, cameraWidth)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .ignoresSafeArea(.container)
         )
@@ -212,15 +271,30 @@ public final class NotchPanelController {
 
     private func updateHitTesting() {
         guard let panel else { return }
+        let pointer = mouseLocation()
+        let local = CGPoint(x: pointer.x - panel.frame.midX, y: panel.frame.maxY - pointer.y)
+        let compact = configuration.collapsedSize
+        let open = configuration.expandedSize
+        let mightHit =
+            abs(local.x) <= max(open.width, compact.width * 1.03) / 2 && local.y >= 0
+            && local.y <= max(open.height, compact.height * 1.04)
+
+        // Pointer events restart tracking on entry. Only poll a stationary pointer
+        // where a host changing its expansion binding could actually change the target.
+        // Keep the polling fallback if AppKit cannot install either movement monitor.
+        if isVisible { setPolling(mightHit || localMonitor == nil || globalMonitor == nil) }
+        guard mightHit else {
+            if !panel.ignoresMouseEvents { panel.ignoresMouseEvents = true }
+            return
+        }
         let expanded = expansion()
-        let pointer = NSEvent.mouseLocation
         // Allow the modest compact hover enlargement to remain interactive.
         var visible = configuration.size(expanded: expanded)
         if !expanded {
             visible.width *= 1.03
             visible.height *= 1.04
         }
-        panel.ignoresMouseEvents = !NotchOverlayGeometry.contains(
+        let ignoresMouseEvents = !NotchOverlayGeometry.contains(
             screenPoint: pointer,
             panelFrame: panel.frame,
             notchSize: visible,
@@ -228,14 +302,25 @@ public final class NotchPanelController {
             topRadius: expanded ? configuration.expandedTopRadius : configuration.collapsedTopRadius,
             bottomRadius: expanded ? configuration.expandedBottomRadius : configuration.collapsedBottomRadius
         )
+        if panel.ignoresMouseEvents != ignoresMouseEvents { panel.ignoresMouseEvents = ignoresMouseEvents }
+    }
+
+    private func setPolling(_ needed: Bool) {
+        guard needed else {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateHitTesting() }
+        }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func beginTracking() {
-        guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.updateHitTesting() }
-        }
-        if let timer { RunLoop.main.add(timer, forMode: .common) }
+        guard displayObserver == nil else { return }
         displayObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil,

@@ -83,6 +83,7 @@ test(
     const host = client(t);
     const { notch, exited } = host;
     await notch.ready;
+    assert.ok(notch.capabilities.includes("expanded-size"));
     const shown = await notch.show({
       style: "glass",
       motion: "gentle",
@@ -92,14 +93,18 @@ test(
       activity: "working",
       progress: 0.3,
       actions: [{ id: "cancel", label: "Cancel" }],
+      expandedSize: { width: 520, height: 230 },
     });
     assert.equal(shown.visible, true);
     assert.equal(shown.state.title, "Native SDK integration");
     assert.equal(shown.state.progress, 0.3);
+    assert.deepEqual(shown.state.expandedSize, { width: 520, height: 230 });
     const cleared = await notch.update({ progress: null, activity: "success" });
     assert.equal(cleared.state.progress, null);
     assert.equal(cleared.state.style, "glass");
     assert.equal(cleared.state.activity, "success");
+    assert.deepEqual(cleared.state.expandedSize, shown.state.expandedSize);
+    assert.equal((await notch.update({ expandedSize: null })).state.expandedSize, null);
     const results = await Promise.all(
       Array.from({ length: 32 }, (_, index) =>
         notch.update({ subtitle: `Concurrent patch ${index}` }),

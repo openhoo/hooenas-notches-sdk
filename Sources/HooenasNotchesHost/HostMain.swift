@@ -11,7 +11,7 @@ enum HooenasNotchesHostMain {
     static func main() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments == ["--version"] {
-            print("hooenas-notches-host 0.1.1 (protocol 1)")
+            print("hooenas-notches-host 0.2.0 (protocol 1)")
             return
         }
         if arguments == ["--help"] {
@@ -106,11 +106,13 @@ private final class HostApplication: NSObject, NSApplicationDelegate, Observable
         let requestID = HostRequest.correlationID(in: data)
         do {
             let request = try JSONDecoder().decode(HostRequest.self, from: data)
-            let oldStyle = state.style
+            let previous = state
             let result = try session.apply(request)
             state = session.state
             if session.visible {
-                if !panel.isVisible || oldStyle != state.style { showPanel() }
+                if !panel.isVisible || previous.style != state.style || previous.expandedSize != state.expandedSize {
+                    showPanel()
+                }
             } else {
                 panel.hide()
             }
@@ -129,10 +131,16 @@ private final class HostApplication: NSObject, NSApplicationDelegate, Observable
 
     private func showPanel() {
         panel.show(
-            content: AnyView(HostNotchContent(model: self)),
+            content: HostNotchContent(model: self),
+            configuration: configuration,
             style: NotchStyle(rawValue: state.style.rawValue) ?? .contour,
             isExpanded: { [weak self] in self?.state.expanded ?? false }
         )
+    }
+
+    var configuration: NotchConfiguration {
+        guard let size = state.expandedSize else { return NotchConfiguration() }
+        return NotchConfiguration(expandedSize: CGSize(width: size.width, height: size.height))
     }
 
     func setExpanded(_ value: Bool) {
@@ -182,58 +190,77 @@ private struct HostNotchContent: View {
         HooenasNotch(
             style: NotchStyle(rawValue: model.state.style.rawValue) ?? .contour,
             isExpanded: Binding(get: { model.state.expanded }, set: { model.setExpanded($0) }),
+            configuration: model.configuration,
             motion: NotchMotion(rawValue: model.state.motion.rawValue) ?? .spring
         ) {
-            HStack(spacing: 9) {
-                Image(systemName: symbol).foregroundStyle(tint)
-                Text(model.state.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                Spacer(minLength: 0)
+            NotchCompactWings {
+                Image(systemName: symbol)
+                    .foregroundStyle(tint)
+                    .accessibilityHidden(true)
+            } trailing: {
                 if model.state.progress != nil {
-                    Circle().trim(from: 0, to: model.state.progress ?? 0)
-                        .stroke(tint, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .frame(width: 11, height: 11)
+                    Text(model.state.progress ?? 0, format: .percent.precision(.fractionLength(0)))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .lineLimit(1)
+                } else {
+                    Text(model.state.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
                 }
             }
             .foregroundStyle(.white)
-            .padding(.horizontal, 14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(model.state.title)
+            .accessibilityValue(
+                model.state.progress?.formatted(.percent.precision(.fractionLength(0))) ?? model.state.subtitle)
         } expanded: {
-            VStack(alignment: .leading, spacing: 15) {
+            ScrollView {
+                expandedContent.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .defaultScrollAnchor(.top)
+        }
+    }
+
+    private var expandedContent: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 40, height: 40)
+                    .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.state.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                    Text(model.state.subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
+            }
+            if let progress = model.state.progress {
                 HStack(spacing: 12) {
-                    Image(systemName: symbol)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(tint)
-                        .frame(width: 40, height: 40)
-                        .background(tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 12))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.state.title).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                        Text(model.state.subtitle).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6))
-                            .lineLimit(2)
-                    }
-                    Spacer(minLength: 28)
+                    ProgressView(value: progress).tint(tint)
+                    Text(progress, format: .percent.precision(.fractionLength(0)))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(0.7))
                 }
-                if let progress = model.state.progress {
-                    HStack(spacing: 12) {
-                        ProgressView(value: progress).tint(tint)
-                        Text(progress, format: .percent.precision(.fractionLength(0)))
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(0.7))
-                    }
-                }
-                if !model.state.actions.isEmpty {
-                    HStack(spacing: 8) {
-                        ForEach(model.state.actions, id: \.id) { action in
-                            Button(action.label) { model.action(action.id) }
-                                .buttonStyle(.plain)
-                                .font(.system(size: 11, weight: .medium))
+            }
+            if !model.state.actions.isEmpty {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 100), spacing: 8)], alignment: .leading, spacing: 8) {
+                    ForEach(model.state.actions, id: \.id) { action in
+                        Button {
+                            model.action(action.id)
+                        } label: {
+                            Text(action.label)
+                                .font(.system(size: 12, weight: .medium))
                                 .lineLimit(1)
                                 .padding(.horizontal, 12).padding(.vertical, 8)
                                 .background(.white.opacity(0.1), in: Capsule())
+                                .contentShape(Capsule())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
-                Spacer(minLength: 0)
             }
-            .foregroundStyle(.white)
         }
+        .foregroundStyle(.white)
     }
 }

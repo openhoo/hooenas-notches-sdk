@@ -11,6 +11,7 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
     private let configuration: NotchConfiguration
     private let motion: NotchMotion
     private let hoverOpens: Bool
+    private let accessibilityLabels: NotchAccessibilityLabels
     private let compact: Compact
     private let expanded: Expanded
 
@@ -27,6 +28,7 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
         configuration: NotchConfiguration? = nil,
         motion: NotchMotion = .spring,
         hoverOpens: Bool = true,
+        accessibilityLabels: NotchAccessibilityLabels = NotchAccessibilityLabels(),
         @ViewBuilder compact: () -> Compact,
         @ViewBuilder expanded: () -> Expanded
     ) {
@@ -35,6 +37,7 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
         self.configuration = configuration ?? NotchConfiguration()
         self.motion = motion
         self.hoverOpens = hoverOpens
+        self.accessibilityLabels = accessibilityLabels
         self.compact = compact()
         self.expanded = expanded()
     }
@@ -65,18 +68,20 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
                     .frame(width: size.width, height: size.height, alignment: .topLeading)
                     .transition(.opacity.combined(with: .scale(scale: reduceMotion ? 1 : 0.96, anchor: .top)))
                     .overlay(alignment: .topTrailing) {
+                        let insets = silhouette.collapseButtonInsets(in: size)
+                        let buttonSize = NotchSilhouette.collapseButtonSize
                         Button(action: collapse) {
                             Image(systemName: "chevron.up")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.55))
-                                .frame(width: 28, height: 28)
+                                .frame(width: buttonSize, height: buttonSize)
                                 .background(.white.opacity(0.06), in: Circle())
                         }
                         .buttonStyle(.plain)
-                        .help("Collapse notch")
-                        .accessibilityLabel("Collapse notch")
-                        .padding(.top, 12)
-                        .padding(.trailing, 14)
+                        .help(accessibilityLabels.collapse)
+                        .accessibilityLabel(accessibilityLabels.collapse)
+                        .padding(.top, insets.top)
+                        .padding(.trailing, insets.trailing)
                     }
                     .onExitCommand(perform: collapse)
             } else {
@@ -91,8 +96,8 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
                         .contentShape(silhouette)
                 }
                 .buttonStyle(.plain)
-                .help("Expand notch")
-                .accessibilityHint("Opens the notch controls")
+                .help(accessibilityLabels.expandHelp)
+                .accessibilityHint(accessibilityLabels.expandHint)
                 .transition(.opacity)
             }
         }
@@ -110,14 +115,26 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
         .colorScheme(.dark)
         .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: isExpanded)
         .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: style)
-        .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: configuration)
+        .animation(motion.animation(expanding: isExpanded, reduceMotion: reduceMotion), value: geometry)
         .animation(
             reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.8), value: isHovered
         )
         .onHover(perform: hover)
+        .onChange(of: isExpanded) { _, expanded in
+            if !expanded {
+                hoverTask?.cancel()
+                hoverExpanded = false
+            }
+        }
+        .onChange(of: hoverOpens) { _, enabled in
+            if !enabled {
+                hoverTask?.cancel()
+                hoverExpanded = false
+            }
+        }
         .onDisappear { hoverTask?.cancel() }
         .accessibilityElement(children: .contain)
-        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityValue(isExpanded ? accessibilityLabels.expanded : accessibilityLabels.collapsed)
     }
 
     @ViewBuilder private var surface: some View {
@@ -157,7 +174,7 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
         if inside && !isExpanded {
             hoverTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled, isHovered else { return }
+                guard !Task.isCancelled, isHovered, !isExpanded else { return }
                 hoverExpanded = true
                 isExpanded = true
             }
@@ -239,6 +256,34 @@ struct NotchSilhouette: Shape {
         case .capsule:
             RoundedRectangle(cornerRadius: min(rect.height / 2, max(bottom, 18)), style: .continuous).path(in: rect)
         }
+    }
+
+    static let collapseButtonSize: CGFloat = 28
+
+    func collapseButtonInsets(in size: CGSize) -> (top: CGFloat, trailing: CGFloat) {
+        let topInset = min(12, max(0, (size.height - Self.collapseButtonSize) / 2))
+        let centered = max(0, (size.width - Self.collapseButtonSize) / 2)
+        let preferred = min(14, centered)
+        let outline = path(in: CGRect(origin: .zero, size: size))
+
+        // The silhouette is symmetric and gets no narrower between these two
+        // heights than at either endpoint. Keep the button inside both edges.
+        func fits(_ trailing: CGFloat) -> Bool {
+            let x = size.width - trailing + 2
+            return outline.contains(CGPoint(x: x, y: topInset))
+                && outline.contains(CGPoint(x: x, y: topInset + Self.collapseButtonSize))
+        }
+        if fits(preferred) { return (topInset, preferred) }
+        guard fits(centered) else { return (topInset, centered) }
+
+        var lower = preferred
+        var upper = centered
+        for _ in 0..<12 {
+            guard upper - lower > 0.25 else { break }
+            let middle = (lower + upper) / 2
+            if fits(middle) { upper = middle } else { lower = middle }
+        }
+        return (topInset, upper)
     }
 
     func strokeBorderCompatibility(_ color: Color, lineWidth: CGFloat) -> some View {

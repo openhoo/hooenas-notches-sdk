@@ -49,6 +49,9 @@ await notch.show({
 });
 
 await notch.update({ progress: 1, activity: "success", subtitle: "All files uploaded" });
+if (notch.capabilities.includes("expanded-size")) {
+  await notch.update({ expandedSize: { width: 520, height: 240 } });
+}
 await notch.hide();
 await notch.quit();
 ```
@@ -84,21 +87,30 @@ the supplied Tauri adapter need their own process transport.
 
 ## State and events
 
-| Field               | Values                                    |
-| ------------------- | ----------------------------------------- |
-| `style`             | `contour`, `capsule`, `glass`             |
-| `motion`            | `spring`, `gentle`, `snappy`              |
-| `expanded`          | `true` / `false`                          |
-| `title`, `subtitle` | Text                                      |
-| `activity`          | `idle`, `working`, `listening`, `success` |
-| `progress`          | `0…1`; `null` clears the value            |
-| `actions`           | Array of `{ id, label }` native buttons   |
+| Field               | Values                                                           |
+| ------------------- | ---------------------------------------------------------------- |
+| `style`             | `contour`, `capsule`, `glass`                                    |
+| `motion`            | `spring`, `gentle`, `snappy`                                     |
+| `expanded`          | `true` / `false`                                                 |
+| `title`, `subtitle` | Text                                                             |
+| `activity`          | `idle`, `working`, `listening`, `success`                        |
+| `progress`          | `0…1`; `null` clears the value                                   |
+| `actions`           | Array of `{ id, label }` native buttons                          |
+| `expandedSize`      | `{ width, height }` in display points; `null` resets the default |
 
 `show` and `update` accept partial patches. Omitted fields keep their current
 value. `show`, `update`, `hide`, and `quit` resolve with the acknowledged native
 state and visibility. `onAction` receives native button IDs; `onState` observes
 acknowledgements and changes from hover, clicks, and Escape. `onEvent` exposes
-all protocol events. Subscriptions return an unsubscribe function.
+all protocol events. Subscriptions return an unsubscribe function. `notch.closed`
+resolves with the reason as soon as the session ends, including when no command
+is pending; a frontend can disable its controls and offer to reconnect.
+
+`expandedSize` requires the host's `expanded-size` capability. Check
+`notch.capabilities` after `ready` when supporting bundled hosts from different
+releases. The client rejects unsupported size requests without closing the
+connection. `notchSizeBounds` provides the valid request limits (width 280–1600,
+height 140–1000); the renderer fits the request to the selected display.
 
 Requests have bounded response timeouts. Invalid host messages, unsupported
 protocol versions, transport failures, timeouts, and process exit reject waiting
@@ -112,6 +124,7 @@ The host gets one timeout interval to exit after acknowledging quit. `dispose()`
 force closes the transport and is safe to call repeatedly. A transport's `close()`
 must release its process and listeners. Tauri's adapter does this automatically,
 including a child whose spawn completes after startup has already timed out.
+The startup deadline covers both the ready announcement and Tauri's child handle.
 
 Consumer callbacks may be synchronous or asynchronous. Their failures do not
 interrupt protocol processing. Supply `onListenerError` in `NotchClient` or

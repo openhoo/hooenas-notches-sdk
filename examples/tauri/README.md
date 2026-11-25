@@ -35,6 +35,9 @@ two individual helpers are retained for Tauri's intermediate architecture builds
 
 The example supports Contour, Capsule, and Glass styles, three motion presets,
 expanded and collapsed presentation, progress, and native action callbacks.
+The size picker follows the host’s acknowledged size and is disabled for older
+hosts. Hide stops an active progress demo. If the sidecar exits, the controls
+are disabled and Reconnect starts a new session.
 Opening the Vite page in a normal browser displays an explanation; launching
 through Tauri enables the native sidecar.
 

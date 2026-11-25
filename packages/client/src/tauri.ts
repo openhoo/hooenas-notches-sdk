@@ -83,25 +83,42 @@ export async function createTauriNotch(options: TauriNotchOptions = {}): Promise
     command.off("error", failure);
     command.off("close", close);
   };
-  const client = new NotchClient(transport, options);
+  const timeoutMs = options.timeoutMs ?? 5_000;
+  const client = new NotchClient(transport, { ...options, timeoutMs });
   command.stdout.on("data", stdout);
   command.stderr.on("data", stderr);
   command.on("error", failure);
   command.on("close", close);
+  // The ready line and the IPC reply containing the child handle arrive independently.
+  // Keep the startup deadline active until both are available.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new NotchError("ready_timeout", "Native notch sidecar did not finish starting")),
+      timeoutMs,
+    );
+  });
   try {
-    await Promise.all([
-      command.spawn().then(async (value) => {
-        child = value;
-        if (closing && !exited) await child.kill();
+    const spawn = async (): Promise<void> => {
+      child = await command.spawn();
+      if (closing && !exited) await child.kill();
+    };
+    await Promise.race([
+      Promise.all([client.ready, spawn()]),
+      client.closed.then((reason) => {
+        throw reason;
       }),
-      client.ready,
+      deadline,
     ]);
     if (closing || exited)
       throw new NotchError("host_closed", "Native notch host closed during startup");
     return client;
   } catch (error) {
     detach();
-    await client.dispose().catch(() => {});
+    // Start cleanup immediately; an unresponsive shell IPC must not hold up the error.
+    void client.dispose().catch(() => {});
     throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }

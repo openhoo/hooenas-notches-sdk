@@ -10,7 +10,7 @@ struct HooenasNotchesShowcase: App {
     var body: some Scene {
         WindowGroup("Hooenas Notches SDK") {
             ShowcaseWindow(model: model)
-                .frame(width: 800, height: 610)
+                .frame(width: 800, height: 680)
                 .preferredColorScheme(.dark)
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     model.hide()
@@ -29,12 +29,20 @@ private final class ShowcaseModel: ObservableObject {
     @Published var activity: NotchActivity = .working
     @Published var expanded = false
     @Published var progress = 0.64
+    @Published var width = 640.0 {
+        didSet { if overlayVisible { present() } }
+    }
+    @Published var height = 219.0 {
+        didSet { if overlayVisible { present() } }
+    }
     @Published private(set) var overlayVisible = false
     private let panel = NotchPanelController()
 
+    var configuration: NotchConfiguration { NotchConfiguration(expandedSize: CGSize(width: width, height: height)) }
+
     func present() {
         panel.show(
-            content: ShowcaseNotch(model: self), style: style,
+            content: ShowcaseNotch(model: self), configuration: configuration, style: style,
             isExpanded: { [weak self] in
                 self?.expanded ?? false
             })
@@ -63,7 +71,7 @@ private struct ShowcaseWindow: View {
                         LinearGradient(
                             colors: [Color.indigo.opacity(0.25), Color.teal.opacity(0.14)], startPoint: .topLeading,
                             endPoint: .bottomTrailing))
-                ShowcaseNotch(model: model)
+                ShowcaseNotch(model: model, previewSize: CGSize(width: 700, height: 254))
             }
             .frame(height: 280)
             .overlay(alignment: .bottomLeading) {
@@ -85,6 +93,19 @@ private struct ShowcaseWindow: View {
                 Slider(value: $model.progress, in: 0...1) {
                     Text("Progress")
                 }
+            }
+            HStack(spacing: 18) {
+                Slider(value: $model.width, in: 360...700, step: 5) {
+                    Text("Width")
+                }
+                .accessibilityValue(Text("\(Int(model.width)) points"))
+                Slider(value: $model.height, in: 140...250, step: 5) {
+                    Text("Height")
+                }
+                .accessibilityValue(Text("\(Int(model.height)) points"))
+                Text("\(Int(model.width)) × \(Int(model.height)) pt")
+                    .font(.caption.monospacedDigit())
+                    .accessibilityHidden(true)
             }
             HStack {
                 Button(model.expanded ? "Collapse" : "Expand") { model.expanded.toggle() }
@@ -109,39 +130,46 @@ private struct ShowcaseWindow: View {
 
 private struct ShowcaseNotch: View {
     @ObservedObject var model: ShowcaseModel
+    var previewSize: CGSize?
 
     var body: some View {
-        HooenasNotch(style: model.style, isExpanded: $model.expanded, motion: model.motion) {
-            HStack {
+        HooenasNotch(
+            style: model.style, isExpanded: $model.expanded,
+            configuration: previewSize.map { model.configuration.fitting(in: $0) } ?? model.configuration,
+            motion: model.motion
+        ) {
+            NotchCompactWings {
                 NotchActivityIndicator(activity: model.activity, tint: .mint)
-                Spacer()
+            } trailing: {
                 Text("\(Int(model.progress * 100))%")
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.mint)
             }
         } expanded: {
-            VStack(alignment: .leading, spacing: 17) {
-                HStack(spacing: 12) {
-                    Image(systemName: "arrow.up.doc.fill")
-                        .font(.system(size: 21)).foregroundStyle(.mint)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Making room for your ideas").font(.system(size: 17, weight: .semibold))
-                        Text("Custom SwiftUI content, in every surface")
-                            .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 17) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "arrow.up.doc.fill")
+                            .font(.system(size: 21)).foregroundStyle(.mint)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Making room for your ideas").font(.system(size: 17, weight: .semibold))
+                            Text("Custom SwiftUI content, in every surface")
+                                .font(.system(size: 12)).foregroundStyle(.white.opacity(0.5))
+                        }
+                        Spacer()
+                        NotchActivityIndicator(activity: model.activity, tint: .mint)
                     }
-                    Spacer()
-                    NotchActivityIndicator(activity: model.activity, tint: .mint)
-                }
-                ProgressView(value: model.progress).tint(.mint)
-                HStack {
-                    Text(model.style.title + " · " + model.motion.title)
-                        .font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-                    Spacer()
-                    Button("Finish") {
-                        model.progress = 1
-                        model.activity = .success
+                    ProgressView(value: model.progress).tint(.mint)
+                    HStack {
+                        Text(model.style.title + " · " + model.motion.title)
+                            .font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
+                        Spacer()
+                        Button("Finish") {
+                            model.progress = 1
+                            model.activity = .success
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
             }
         }

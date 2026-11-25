@@ -20,6 +20,27 @@ final class NotchKeyboardTests: XCTestCase {
         XCTAssertFalse(state.expanded, "Escape must collapse an expanded notch")
     }
 
+    func testExplicitlyFocusedPanelCanCollapseWithoutAnEditableControl() async throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Requires a desktop display") }
+        let state = KeyboardState(expanded: true)
+        let controller = NotchPanelController()
+        defer { controller.hide() }
+        controller.show(
+            isExpanded: Binding(get: { state.expanded }, set: { state.expanded = $0 }), hoverOpens: false
+        ) {
+            Text("Summary")
+        } expanded: {
+            Text("Read-only details")
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(controller.focus())
+        let window = try XCTUnwrap(NSApplication.shared.keyWindow)
+        try dispatchEscape(to: window)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertFalse(state.expanded, "Escape should work immediately after a menu or shortcut opens the panel")
+    }
+
     func testHostOnExitReceivesEscape() async throws {
         let state = KeyboardState(expanded: false)
         try await sendEscape(to: state, usesNotch: false)
@@ -53,6 +74,11 @@ final class NotchKeyboardTests: XCTestCase {
         }
         let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
         XCTAssertTrue(editor.isFieldEditor, "The SwiftUI text field must own keyboard focus before Escape")
+        try dispatchEscape(to: window)
+        try await Task.sleep(for: .milliseconds(50))
+    }
+
+    private func dispatchEscape(to window: NSWindow) throws {
         let event = try XCTUnwrap(
             NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: [],
@@ -61,7 +87,6 @@ final class NotchKeyboardTests: XCTestCase {
                 isARepeat: false, keyCode: 53
             ))
         NSApplication.shared.sendEvent(event)
-        try await Task.sleep(for: .milliseconds(50))
     }
 }
 

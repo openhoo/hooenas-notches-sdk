@@ -92,7 +92,7 @@ def main():
         links = (
             re.findall(r"\[[^\]]*\]\(([^\s)]+)\)", text)
             if path.suffix == ".md"
-            else re.findall(r'(?:href|src)=["\']([^"\']+)["\']', text)
+            else re.findall(r'(?:href|src|poster)=["\']([^"\']+)["\']', text)
         )
         for link in links:
             parsed = urlsplit(link)

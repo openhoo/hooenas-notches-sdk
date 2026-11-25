@@ -23,9 +23,10 @@ npm run format:check
 npm --prefix packages/client ci
 npm --prefix packages/client test
 # The release build above is mandatory so the integration test cannot skip for a missing helper.
-test -x .build/release/hooenas-notches-host
-npm --prefix packages/client run test:native
-HOOENAS_NOTCHES_HOST="$PROJECT_DIR/.build/release/hooenas-notches-host" python3 scripts/test-host-stream.py
+RELEASE_HOST="$(swift build -c release --show-bin-path)/hooenas-notches-host"
+test -x "$RELEASE_HOST"
+HOOENAS_NOTCHES_HOST="$RELEASE_HOST" npm --prefix packages/client run test:native
+HOOENAS_NOTCHES_HOST="$RELEASE_HOST" python3 scripts/test-host-stream.py
 npm --prefix examples/tauri ci
 npm --prefix examples/tauri run tauri:build
 cargo fmt --manifest-path examples/tauri/src-tauri/Cargo.toml -- --check

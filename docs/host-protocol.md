@@ -9,12 +9,15 @@ Build it with `swift build --product hooenas-notches-host`. Keep stdin open for 
 The host emits this once its AppKit run loop is ready:
 
 ```json
-{ "event": "ready", "protocolVersion": 1 }
+{ "event": "ready", "protocolVersion": 1, "capabilities": ["expanded-size"] }
 ```
 
 Wait for `ready`, then write one complete JSON object followed by a newline. Writes may be split across reads; UTF-8 characters are preserved. Both LF and CRLF are accepted. A final line without a newline is processed before EOF. Empty lines are ignored. A line may contain at most 65,536 bytes before LF; longer lines are discarded and produce a `line_too_long` error. The next line can still be processed.
 
 Stdout contains only protocol messages. Treat stderr as diagnostic text. No network listener or credentials are involved.
+
+Older v1 hosts may omit `capabilities`. Send `expandedSize` only if `ready`
+advertises `expanded-size`; clients can ignore unrecognized capability names.
 
 ## Commands
 
@@ -38,6 +41,7 @@ Every request has a nonempty string `id` (maximum 128 characters and 512 UTF-8 b
     "activity": "working",
     "progress": 0.6,
     "expanded": true,
+    "expandedSize": { "width": 520, "height": 240 },
     "actions": [{ "id": "cancel", "label": "Abbrechen" }]
   }
 }
@@ -47,20 +51,24 @@ The host validates the complete resulting state before applying a patch, includi
 
 ### State patch
 
-All fields are optional. Missing fields preserve their previous value. `progress: null` clears progress. An empty `actions` array removes all actions.
+All fields are optional. Missing fields preserve their previous value. `progress: null` clears progress. `expandedSize: null` resets the default dimensions. An empty `actions` array removes all actions. An explicit `null` for any other field, or for `state` itself, is an invalid request; none of that patch takes effect.
 
-| Field      | Values / limits                                          | Initial value              |
-| ---------- | -------------------------------------------------------- | -------------------------- |
-| `style`    | `contour`, `capsule`, `glass`                            | `contour`                  |
-| `motion`   | `spring`, `gentle`, `snappy`                             | `spring`                   |
-| `expanded` | Boolean                                                  | `false`                    |
-| `title`    | 1–512 characters, contains non-whitespace                | `Hooenas Notches`          |
-| `subtitle` | At most 2,048 characters                                 | `Bereit, wenn du es bist.` |
-| `activity` | `idle`, `working`, `listening`, `success`                | `idle`                     |
-| `progress` | `null` or a finite number from 0 to 1                    | `null`                     |
-| `actions`  | At most four `{ "id": string, "label": string }` objects | `[]`                       |
+| Field          | Values / limits                                                     | Initial value              |
+| -------------- | ------------------------------------------------------------------- | -------------------------- |
+| `style`        | `contour`, `capsule`, `glass`                                       | `contour`                  |
+| `motion`       | `spring`, `gentle`, `snappy`                                        | `spring`                   |
+| `expanded`     | Boolean                                                             | `false`                    |
+| `title`        | 1–512 characters, contains non-whitespace                           | `Hooenas Notches`          |
+| `subtitle`     | At most 2,048 characters                                            | `Bereit, wenn du es bist.` |
+| `activity`     | `idle`, `working`, `listening`, `success`                           | `idle`                     |
+| `progress`     | `null` or a finite number from 0 to 1                               | `null`                     |
+| `actions`      | At most four `{ "id": string, "label": string }` objects            | `[]`                       |
+| `expandedSize` | `null` or `{ "width": 280...1600, "height": 140...1000 }` in points | `null` (640 × 219 pt)      |
 
 Action ids must be unique, contain 1–64 characters and at most 256 UTF-8 bytes, and contain no control characters. Labels must contain 1–64 characters with non-whitespace content. Character limits count Swift extended grapheme clusters; encoded-size limits also bound combining sequences. Text is rendered as text, never as HTML, code or a shell command. Long text is visually truncated by the standard notch content.
+
+The size fields in replies describe the requested dimensions. The renderer may
+use smaller dimensions to fit the selected display.
 
 ## Results and events
 
@@ -80,6 +88,7 @@ A successful command returns a complete state snapshot, including `progress: nul
     "subtitle": "24 von 40 Dateien",
     "activity": "working",
     "progress": 0.6,
+    "expandedSize": { "width": 520, "height": 240 },
     "actions": [{ "id": "cancel", "label": "Abbrechen" }]
   }
 }
@@ -105,6 +114,7 @@ Hovering, clicking the notch or pressing Escape may change its expanded state. T
     "subtitle": "Bereit, wenn du es bist.",
     "activity": "idle",
     "progress": null,
+    "expandedSize": null,
     "actions": []
   }
 }
