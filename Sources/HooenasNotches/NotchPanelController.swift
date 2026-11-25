@@ -346,10 +346,50 @@ private final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
+    override func sendEvent(_ event: NSEvent) {
+        // Without a focused SwiftUI control, onExitCommand is not always dispatched.
+        // Let real controls, text composition and transient windows handle their own Escape.
+        if isKeyWindow, event.type == .keyDown, event.keyCode == 53,
+            event.modifierFlags.intersection([.command, .control, .option, .shift, .function]).isEmpty,
+            allowsNotchEscape,
+            let hosting = contentView, firstResponder == nil || firstResponder === self || firstResponder === hosting,
+            let collapse = singleExpandedNotch(in: hosting)
+        {
+            collapse()
+            return
+        }
+        super.sendEvent(event)
+    }
+
+    private func singleExpandedNotch(in root: NSView) -> (@MainActor () -> Void)? {
+        // Custom panel content can contain multiple notches. Only supply the fallback
+        // when exactly one of them is expanded; leave ambiguous commands to the host.
+        var result: (@MainActor () -> Void)?
+        var views = [root]
+        while let view = views.popLast() {
+            guard !view.isHidden else { continue }
+            if let action = (view as? NotchFocusMarker)?.collapse {
+                guard result == nil else { return nil }
+                result = action
+            }
+            views.append(contentsOf: view.subviews)
+        }
+        return result
+    }
+
     // AppKit otherwise clamps maxY to visibleFrame.maxY, placing the overlay
     // below the menu bar (38 points below the camera on the tested MacBook).
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
         frameRect
+    }
+}
+
+extension NSWindow {
+    // A read-only popover can leave its parent panel key. Both the AppKit fallback
+    // and SwiftUI's focused exit command must leave the presenting notch alone.
+    var allowsNotchEscape: Bool {
+        guard self is NotchPanel else { return true }
+        return attachedSheet == nil && NSApp.modalWindow == nil && childWindows?.contains(where: \.isVisible) != true
     }
 }
 

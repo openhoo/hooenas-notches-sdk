@@ -16,6 +16,8 @@
   controls to the Swift and Tauri showcases.
 - Keep an explicitly opened notch open when an earlier hover delay expires.
   Stop idle pointer polling outside the notch when movement monitoring is available.
+- Let Escape collapse a keyboard-focused screen panel even when it contains
+  only read-only content. Text editors and popovers keep their own Escape handling.
 - Reject invalid null fields without applying the rest of a patch. Bound sidecar
   startup and keep action delivery stable when listeners subscribe again.
 - Stop the Tauri progress demo on Hide, show the settings acknowledged by the host,

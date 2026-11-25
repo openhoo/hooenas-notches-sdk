@@ -250,6 +250,11 @@ Its build hook compiles and bundles the Swift helper for the Rust target's
 architecture. The example includes scoped shell capabilities and native action
 callbacks. See the [Tauri guide](examples/tauri/README.md) for bundling details.
 
+To try the native helper without building it, download the universal macOS archive
+and `SHA256SUMS.txt` from the [SDK 0.2.0 release](https://github.com/openhoo/hooenas-notches-sdk/releases/tag/v0.2.0).
+Run `shasum -a 256 -c SHA256SUMS.txt` before extracting it. The helper is ad hoc
+signed for development.
+
 `NotchClient` also accepts a transport that you implement for another desktop
 runtime. Launch the helper with `--stdio`, attach listeners before waiting for
 `ready`, and keep stdin open. The protocol supports `show`, `update`, `hide`,

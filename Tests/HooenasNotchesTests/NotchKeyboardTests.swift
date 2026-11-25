@@ -36,9 +36,96 @@ final class NotchKeyboardTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertTrue(controller.focus())
         let window = try XCTUnwrap(NSApplication.shared.keyWindow)
+        let focus = panelFocusDescription(window)
         try dispatchEscape(to: window)
         try await Task.sleep(for: .milliseconds(50))
-        XCTAssertFalse(state.expanded, "Escape should work immediately after a menu or shortcut opens the panel")
+        XCTAssertFalse(
+            state.expanded, "Escape should work immediately after a menu or shortcut opens the panel (\(focus))")
+    }
+
+    func testComposedPanelCanCollapseWithOnlyWindowFocus() async throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Requires a desktop display") }
+        let state = KeyboardState(expanded: true)
+        let controller = NotchPanelController()
+        defer { controller.hide() }
+        controller.show(
+            content: VStack {
+                HooenasNotch(
+                    isExpanded: Binding(get: { state.expanded }, set: { state.expanded = $0 }), hoverOpens: false
+                ) {
+                    Text("Summary")
+                } expanded: {
+                    Text("Read-only details")
+                }
+            }.onExitCommand { state.hostCancelCount += 1 },
+            isExpanded: { state.expanded }
+        )
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(controller.focus())
+        let window = try XCTUnwrap(NSApp.keyWindow)
+        XCTAssertTrue(window.makeFirstResponder(nil))
+        XCTAssertTrue(window.firstResponder === window)
+        try dispatchEscape(to: window)
+        XCTAssertFalse(state.expanded)
+        XCTAssertEqual(state.hostCancelCount, 0)
+    }
+
+    func testNativeEditorKeepsEscapeDuringTextComposition() async throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Requires a desktop display") }
+        let state = KeyboardState(expanded: true)
+        let controller = NotchPanelController()
+        defer { controller.hide() }
+        let editor = CompositionEditor()
+        controller.show(
+            isExpanded: Binding(get: { state.expanded }, set: { state.expanded = $0 }), hoverOpens: false
+        ) {
+            Text("Summary")
+        } expanded: {
+            EmbeddedEditor(editor: editor)
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(controller.focus())
+        let window = try XCTUnwrap(editor.window)
+        XCTAssertTrue(window.makeFirstResponder(editor))
+        editor.setMarkedText(
+            "ka", selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(editor.hasMarkedText())
+        try dispatchEscape(to: window)
+        XCTAssertTrue(editor.cancelledComposition, "The text input client must receive its own Escape")
+        XCTAssertTrue(state.expanded)
+    }
+
+    func testTransientPopoverKeepsEscapeAheadOfItsNotch() async throws {
+        _ = NSApplication.shared
+        guard NSScreen.screens.first != nil else { throw XCTSkip("Requires a desktop display") }
+        let state = KeyboardState(expanded: true)
+        let controller = NotchPanelController()
+        defer { controller.hide() }
+        controller.show(
+            isExpanded: Binding(get: { state.expanded }, set: { state.expanded = $0 }), hoverOpens: false
+        ) {
+            Text("Summary")
+        } expanded: {
+            Text("Read-only details")
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(controller.focus())
+        let parent = try XCTUnwrap(NSApp.keyWindow)
+        let anchor = try XCTUnwrap(parent.contentView)
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = false
+        popover.contentViewController = NSHostingController(rootView: Text("Details").padding())
+        defer { popover.close() }
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        XCTAssertTrue(popover.isShown)
+        let recipient = try XCTUnwrap(NSApp.keyWindow)
+        try dispatchEscape(to: recipient)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertTrue(state.expanded, "Dismissing transient content must leave its parent notch open")
     }
 
     func testHostOnExitReceivesEscape() async throws {
@@ -78,6 +165,20 @@ final class NotchKeyboardTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(50))
     }
 
+    private func panelFocusDescription(_ window: NSWindow) -> String {
+        var views = window.contentView.map { [$0] } ?? []
+        var markers = 0
+        while let next = views.popLast() {
+            guard !next.isHidden else { continue }
+            if let marker = next as? NotchFocusMarker, marker.collapse != nil { markers += 1 }
+            views.append(contentsOf: next.subviews)
+        }
+        let responder = window.firstResponder
+        let name = responder.map { String(describing: type(of: $0)) } ?? "none"
+        return "key=\(window.isKeyWindow), responder=\(name), window=\(responder === window), "
+            + "host=\(responder === window.contentView), expanded markers=\(markers), allows escape=\(window.allowsNotchEscape)"
+    }
+
     private func dispatchEscape(to window: NSWindow) throws {
         let event = try XCTUnwrap(
             NSEvent.keyEvent(
@@ -98,6 +199,24 @@ private final class KeyboardState: ObservableObject {
     var hostCancelCount = 0
 
     init(expanded: Bool) { self.expanded = expanded }
+}
+
+private struct EmbeddedEditor: NSViewRepresentable {
+    let editor: CompositionEditor
+    func makeNSView(context: Context) -> CompositionEditor { editor }
+    func updateNSView(_ nsView: CompositionEditor, context: Context) {}
+}
+
+private final class CompositionEditor: NSTextView {
+    var cancelledComposition = false
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 && hasMarkedText() {
+            cancelledComposition = true
+            unmarkText()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
 }
 
 private struct KeyboardContent: View {

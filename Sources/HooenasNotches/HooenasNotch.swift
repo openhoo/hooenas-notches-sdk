@@ -83,7 +83,9 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
                         .padding(.top, insets.top)
                         .padding(.trailing, insets.trailing)
                     }
-                    .onExitCommand(perform: collapse)
+                    .onExitCommand {
+                        if focusContext.marker?.window?.allowsNotchEscape != false { collapse() }
+                    }
             } else {
                 Button {
                     hoverTask?.cancel()
@@ -102,7 +104,10 @@ public struct HooenasNotch<Compact: View, Expanded: View>: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .top)
-        .background(NotchFocusReader(context: focusContext).accessibilityHidden(true))
+        .background {
+            NotchFocusReader(context: focusContext, collapse: isExpanded ? collapse : nil)
+                .accessibilityHidden(true)
+        }
         .clipShape(silhouette)
         .contentShape(silhouette)
         .shadow(color: .black.opacity(style == .glass ? 0.24 : 0.3), radius: isExpanded ? 22 : 8, y: 8)
@@ -218,6 +223,7 @@ private final class NotchFocusContext {
 
 private struct NotchFocusReader: NSViewRepresentable {
     let context: NotchFocusContext
+    let collapse: (@MainActor () -> Void)?
 
     func makeNSView(context: Context) -> NotchFocusMarker {
         let view = NotchFocusMarker()
@@ -228,10 +234,17 @@ private struct NotchFocusReader: NSViewRepresentable {
 
     func updateNSView(_ nsView: NotchFocusMarker, context: Context) {
         self.context.marker = nsView
+        nsView.collapse = collapse
+    }
+
+    static func dismantleNSView(_ nsView: NotchFocusMarker, coordinator: ()) {
+        nsView.collapse = nil
     }
 }
 
-private final class NotchFocusMarker: NSView {
+final class NotchFocusMarker: NSView {
+    var collapse: (@MainActor () -> Void)?
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
